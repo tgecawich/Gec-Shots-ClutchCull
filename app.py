@@ -11,6 +11,10 @@ INPUT_DIR = Path("input_photos")
 OUTPUT_DIR = Path("output_photos")
 CANVAS_DIR = Path("canvas_photos")
 
+INPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+CANVAS_DIR.mkdir(exist_ok=True)
+
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
