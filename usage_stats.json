@@ -1,0 +1,15 @@
+{
+  "total_users": 1,
+  "total_sessions": 2,
+  "total_photos_processed": 356,
+  "total_exports": 3,
+  "total_minutes_saved": 33.224999999999994,
+  "users": {
+    "test1@gmail.com": {
+      "sessions": 2,
+      "photos_processed": 356,
+      "exports": 3,
+      "minutes_saved": 33.224999999999994
+    }
+  }
+}
