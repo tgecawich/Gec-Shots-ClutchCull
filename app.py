@@ -782,9 +782,20 @@ def main() -> None:
         accept_multiple_files=True,
     
     )
-    st.caption("⬇️ Upload your photos here. After processing, scroll to the VERY BOTTOM to download your final selected photos.")
-    st.caption("💻 Works best on a computer for fastest uploads, best experience and full options view.")
-    st.caption("If on mobile, specifc sorting options are available when clicking the arrows in the top right!")
+    st.markdown(
+    "<p style='color: black; font-weight: 500;'> ⬆️ Upload your photos here. After processing, scroll to the VERY BOTTOM to download your final selected photos.</p>",
+    unsafe_allow_html=True
+    )
+
+    st.markdown(
+    "<p style='color: black; font-weight: 500;'>💻 Works best on a computer for fastest uploads, best experience and full options view.</p>",
+    unsafe_allow_html=True
+    )
+
+    st.markdown(
+    "<p style='color: black; font-weight: 500;'>📱 On mobile, use the arrows in the top left for sorting options.</p>",
+    unsafe_allow_html=True
+    )
     
     email = normalize_email(
         st.text_input("Email (optional, used only to track usage impact)")
