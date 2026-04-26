@@ -1,8 +1,11 @@
-import json
 import shutil
+import threading
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+import pandas as pd
+from io import StringIO
 
 import cv2
 import imagehash
@@ -10,12 +13,25 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 INPUT_DIR = Path("input_photos")
 OUTPUT_DIR = Path("output_photos")
 CANVAS_DIR = Path("canvas_photos")
-USAGE_STATS_PATH = Path("usage_stats.json")
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 RESAMPLING = getattr(Image, "Resampling", Image)
+GOOGLE_FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSdE_xxiIaiHwYX9LQag1kipieTojmqEfqv1fVqwtsCKo45Mlg/formResponse"
+GOOGLE_FORM_FIELDS = {
+    "event_type": "entry.1792514521",
+    "email": "entry.1250685824",
+    "photos_processed": "entry.1966720800",
+    "exports": "entry.23206585",
+    "minutes_saved": "entry.1192573871",
+    "session_id": "entry.747824885",
+}
 SCORING_PRESETS = {
     "Sports Action": {
         "sharpness": 0.6,
@@ -44,132 +60,8 @@ SCORING_PRESETS = {
 }
 
 
-def default_user_stats() -> dict:
-    return {
-        "sessions": 0,
-        "photos_processed": 0,
-        "exports": 0,
-        "minutes_saved": 0.0,
-    }
-
-
-def default_usage_stats() -> dict:
-    return {
-        "total_users": 0,
-        "total_sessions": 0,
-        "total_photos_processed": 0,
-        "total_exports": 0,
-        "total_minutes_saved": 0.0,
-        "users": {},
-    }
-
-
-def safe_number(value, default=0):
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, (int, float)):
-        return value
-    return default
-
-
 def normalize_email(email: str) -> str:
     return email.strip().lower()
-
-
-def clean_usage_stats(stats: dict | None) -> dict:
-    clean_stats = default_usage_stats()
-
-    if not isinstance(stats, dict):
-        return clean_stats
-
-    for key in clean_stats:
-        if key == "users":
-            continue
-        clean_stats[key] = safe_number(stats.get(key), clean_stats[key])
-
-    users = stats.get("users", {})
-    if isinstance(users, dict):
-        cleaned_users = {}
-
-        for email, user_stats in users.items():
-            if not isinstance(email, str) or not isinstance(user_stats, dict):
-                continue
-
-            normalized_email = normalize_email(email)
-            cleaned_user_stats = default_user_stats()
-            for key in cleaned_user_stats:
-                cleaned_user_stats[key] = safe_number(
-                    user_stats.get(key),
-                    cleaned_user_stats[key],
-                )
-
-            if normalized_email:
-                cleaned_users[normalized_email] = cleaned_user_stats
-
-        clean_stats["users"] = cleaned_users
-
-    clean_stats["total_users"] = len(clean_stats["users"])
-    return clean_stats
-
-
-def load_usage_stats() -> dict:
-    if not USAGE_STATS_PATH.exists():
-        stats = default_usage_stats()
-        save_usage_stats(stats)
-        return stats
-
-    try:
-        with open(USAGE_STATS_PATH, "r", encoding="utf-8") as stats_file:
-            return clean_usage_stats(json.load(stats_file))
-    except (OSError, json.JSONDecodeError):
-        return default_usage_stats()
-
-
-def save_usage_stats(stats: dict) -> None:
-    try:
-        with open(USAGE_STATS_PATH, "w", encoding="utf-8") as stats_file:
-            json.dump(clean_usage_stats(stats), stats_file, indent=2)
-    except (OSError, TypeError):
-        pass
-
-
-def get_or_create_user_stats(stats: dict, email: str) -> dict:
-    users = stats.setdefault("users", {})
-    if email not in users:
-        users[email] = default_user_stats()
-        stats["total_users"] = len(users)
-    return users[email]
-
-
-def update_session_stats(email: str) -> dict:
-    stats = load_usage_stats()
-
-    if not st.session_state.get("usage_global_session_counted", False):
-        stats["total_sessions"] += 1
-        st.session_state.usage_global_session_counted = True
-
-    if email:
-        counted_emails = list(st.session_state.get("usage_session_emails_counted", []))
-        if email not in counted_emails:
-            user_stats = get_or_create_user_stats(stats, email)
-            user_stats["sessions"] += 1
-            counted_emails.append(email)
-            st.session_state.usage_session_emails_counted = counted_emails
-
-    save_usage_stats(stats)
-    return stats
-
-
-def update_photos_processed_stats(email: str, photo_count: int) -> dict:
-    stats = load_usage_stats()
-    stats["total_photos_processed"] += photo_count
-
-    if email:
-        user_stats = get_or_create_user_stats(stats, email)
-        user_stats["photos_processed"] += photo_count
-
-    save_usage_stats(stats)
-    return stats
 
 
 def calculate_minutes_saved(photos_processed: int, seconds_per_photo: int) -> float:
@@ -178,48 +70,102 @@ def calculate_minutes_saved(photos_processed: int, seconds_per_photo: int) -> fl
     return manual_minutes - ai_minutes
 
 
-def update_export_stats(
-    email: str,
-    photos_processed: int,
-    seconds_per_photo: int,
-) -> dict:
-    stats = load_usage_stats()
-    minutes_saved = calculate_minutes_saved(photos_processed, seconds_per_photo)
-
-    stats["total_exports"] += 1
-    stats["total_minutes_saved"] += minutes_saved
-
-    if email:
-        user_stats = get_or_create_user_stats(stats, email)
-        user_stats["exports"] += 1
-        user_stats["minutes_saved"] += minutes_saved
-
-    save_usage_stats(stats)
-    return stats
+def get_session_id() -> str:
+    if "tracking_session_id" not in st.session_state:
+        st.session_state.tracking_session_id = str(uuid.uuid4())
+    return st.session_state.tracking_session_id
 
 
-def render_impact_dashboard(email: str) -> None:
-    stats = load_usage_stats()
-    estimated_total_hours_saved = stats["total_minutes_saved"] / 60
+def post_google_form_event(
+    event_type: str,
+    email: str = "",
+    photos_processed: int = 0,
+    exports: int = 0,
+    minutes_saved: float = 0.0,
+) -> None:
+    if requests is None:
+        return
 
-    st.write("### Impact Dashboard")
-    impact_columns = st.columns(5)
-    impact_columns[0].metric("Total users (emails entered)", stats["total_users"])
-    impact_columns[1].metric("Total sessions", stats["total_sessions"])
-    impact_columns[2].metric("Total photos processed", stats["total_photos_processed"])
-    impact_columns[3].metric("Total exports", stats["total_exports"])
-    impact_columns[4].metric("Estimated total hours saved", round(estimated_total_hours_saved, 1))
+    payload = {
+        GOOGLE_FORM_FIELDS["event_type"]: event_type,
+        GOOGLE_FORM_FIELDS["email"]: email,
+        GOOGLE_FORM_FIELDS["photos_processed"]: str(photos_processed),
+        GOOGLE_FORM_FIELDS["exports"]: str(exports),
+        GOOGLE_FORM_FIELDS["minutes_saved"]: f"{minutes_saved:.2f}",
+        GOOGLE_FORM_FIELDS["session_id"]: get_session_id(),
+    }
 
-    if email:
-        user_stats = stats.get("users", {}).get(email, default_user_stats())
-        st.write("### Your Usage")
-        user_columns = st.columns(4)
-        user_columns[0].metric("Your sessions", user_stats["sessions"])
-        user_columns[1].metric("Your photos processed", user_stats["photos_processed"])
-        user_columns[2].metric("Your exports", user_stats["exports"])
-        user_columns[3].metric("Your estimated hours saved", round(user_stats["minutes_saved"] / 60, 1))
+    try:
+        requests.post(GOOGLE_FORM_URL, data=payload, timeout=3)
+    except Exception:
+        pass
 
 
+def log_google_form_event(
+    event_type: str,
+    email: str = "",
+    photos_processed: int = 0,
+    exports: int = 0,
+    minutes_saved: float = 0.0,
+) -> None:
+    thread = threading.Thread(
+        target=post_google_form_event,
+        kwargs={
+            "event_type": event_type,
+            "email": email,
+            "photos_processed": photos_processed,
+            "exports": exports,
+            "minutes_saved": minutes_saved,
+        },
+        daemon=True,
+    )
+    thread.start()
+
+
+def log_session_start_once(email: str) -> None:
+    if st.session_state.get("session_start_logged", False):
+        return
+
+    log_google_form_event("session_start", email=email)
+    st.session_state.session_start_logged = True
+
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv"
+
+@st.cache_data(ttl=60)
+def load_live_stats():
+    response = requests.get(GOOGLE_SHEET_CSV_URL, timeout=10)
+    response.raise_for_status()
+
+    df = pd.read_csv(StringIO(response.text))
+
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "_")
+    )
+
+    total_sessions = (df["event_type"] == "session_start").sum()
+    total_photos = pd.to_numeric(df["photos_processed"], errors="coerce").fillna(0).sum()
+    total_exports = pd.to_numeric(df["exports"], errors="coerce").fillna(0).sum()
+    total_hours_saved = pd.to_numeric(df["minutes_saved"], errors="coerce").fillna(0).sum() / 60
+
+    return total_sessions, total_photos, total_exports, total_hours_saved
+
+
+def render_live_stats():
+    try:
+        sessions, photos, exports, hours = load_live_stats()
+
+        st.write("### Live Impact Dashboard")
+        cols = st.columns(4)
+        cols[0].metric("Sessions", int(sessions))
+        cols[1].metric("Photos processed", int(photos))
+        cols[2].metric("Exports", int(exports))
+        cols[3].metric("Hours saved", round(hours, 1))
+
+    except Exception:
+        st.info("Live stats temporarily unavailable.")
 @dataclass
 class CanvasSettings:
     width: int
@@ -799,6 +745,8 @@ def main() -> None:
     st.subheader("AI culling for sports photographers")
     st.write("Upload a batch, filter weak frames, remove duplicates, and keep the best shots.")
 
+    render_live_stats()
+
     st.sidebar.header("Culling Settings")
     scoring_preset = st.sidebar.selectbox(
         "Scoring Preset",
@@ -838,7 +786,7 @@ def main() -> None:
     )
     st.caption("Used only to track app usage and improve the tool. No spam.")
 
-    update_session_stats(email)
+    log_session_start_once(email)
 
     if not uploaded_files:
         st.info("Add a batch of photos to start culling.")
@@ -865,7 +813,11 @@ def main() -> None:
         st.session_state.cull_results = results
         st.session_state.last_photos_processed = results["total"]
         st.session_state.current_batch_id = st.session_state.get("current_batch_id", 0) + 1
-        update_photos_processed_stats(email, results["total"])
+        log_google_form_event(
+            "photos_processed",
+            email=email,
+            photos_processed=results["total"],
+        )
         reset_manual_selection(results["selected_candidates"])
 
     results = st.session_state.get("cull_results")
@@ -894,7 +846,6 @@ def main() -> None:
             "No photos passed the current filters. Try lowering the blur threshold "
             "or increasing the duplicate threshold."
         )
-        render_impact_dashboard(email)
         return
 
     st.write("### Selection Notes")
@@ -935,10 +886,16 @@ def main() -> None:
         current_batch_id = st.session_state.get("current_batch_id")
         counted_export_batch_ids = list(st.session_state.get("counted_export_batch_ids", []))
         if current_batch_id not in counted_export_batch_ids:
-            update_export_stats(
+            minutes_saved = calculate_minutes_saved(
+                st.session_state.get("last_photos_processed", results["total"]),
+                seconds_per_photo,
+            )
+            log_google_form_event(
+                "export_completed",
                 email=email,
                 photos_processed=st.session_state.get("last_photos_processed", results["total"]),
-                seconds_per_photo=seconds_per_photo,
+                exports=1,
+                minutes_saved=minutes_saved,
             )
             counted_export_batch_ids.append(current_batch_id)
             st.session_state.counted_export_batch_ids = counted_export_batch_ids
@@ -961,7 +918,6 @@ def main() -> None:
     elif export_results:
         st.info("Your manual selection changed. Export checked photos again to refresh the ZIP files.")
 
-    render_impact_dashboard(email)
 
 
 if __name__ == "__main__":
