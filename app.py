@@ -780,6 +780,7 @@ def main() -> None:
         "Upload your photos",
         type=["jpg", "jpeg", "png", "webp"],
         accept_multiple_files=True,
+        st.caption("⬇️ Upload your photos here. After processing, scroll to the VERY BOTTOM to download your final selected photos.")
     )
     email = normalize_email(
         st.text_input("Email (optional, used only to track usage impact)")
