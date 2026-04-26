@@ -788,7 +788,7 @@ def main() -> None:
             background-color: rgba(255,255,255,0.85);
             color: black;
             padding: 10px;
-            border-radius: 8px;
+            border-radius: 4px;
             font-weight: 500;
         '>
         ⬇️ Upload your photos here. After processing, scroll to the VERY BOTTOM to download your final selected photos.
@@ -803,7 +803,7 @@ def main() -> None:
             background-color: rgba(255,255,255,0.85);
             color: black;
             padding: 10px;
-            border-radius: 8px;
+            border-radius: 4px;
             font-weight: 500;
         '>
         💻 Works best on a computer for fastest uploads, best experience and full options view.
@@ -818,10 +818,10 @@ def main() -> None:
             background-color: rgba(255,255,255,0.85);
             color: black;
             padding: 10px;
-            border-radius: 8px;
+            border-radius: 4px;
             font-weight: 500;
         '>
-        📱 On mobile, use the arrows in the top right for sorting options.
+        📱 On mobile, use the arrows in the top left for sorting options.
         </div>
         """,
         unsafe_allow_html=True
