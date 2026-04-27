@@ -848,7 +848,7 @@ def main() -> None:
     st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
 
     st.title("Gec Shots ClutchCull")
-    st.subheader("AI culling for sports photographers")
+    st.subheader("AI Sorting and Selection for All Photographers")
     st.write("Upload a batch, filter weak frames, remove duplicates, and keep the best shots.")
 
     render_live_stats()
