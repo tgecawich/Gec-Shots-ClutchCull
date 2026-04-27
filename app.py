@@ -3,15 +3,19 @@ import threading
 import uuid
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
-import pandas as pd
 from io import StringIO
+from pathlib import Path
 
 import cv2
 import imagehash
 import numpy as np
 import streamlit as st
 from PIL import Image
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 try:
     import requests
@@ -22,7 +26,13 @@ INPUT_DIR = Path("input_photos")
 OUTPUT_DIR = Path("output_photos")
 CANVAS_DIR = Path("canvas_photos")
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+ANALYSIS_MAX_WIDTH = 1200
+PROCESSING_CHUNK_SIZE = 25
+UI_PREVIEW_LIMIT = 20
+
 RESAMPLING = getattr(Image, "Resampling", Image)
+
 GOOGLE_FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSdE_xxiIaiHwYX9LQag1kipieTojmqEfqv1fVqwtsCKo45Mlg/formResponse"
 GOOGLE_FORM_FIELDS = {
     "event_type": "entry.1792514521",
@@ -32,6 +42,8 @@ GOOGLE_FORM_FIELDS = {
     "minutes_saved": "entry.1192573871",
     "session_id": "entry.747824885",
 }
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv"
+
 SCORING_PRESETS = {
     "Sports Action": {
         "sharpness": 0.6,
@@ -58,6 +70,34 @@ SCORING_PRESETS = {
         "exposure": 0.1,
     },
 }
+
+
+@dataclass
+class CanvasSettings:
+    width: int
+    height: int
+    padding: int
+    create_exports: bool
+
+
+@dataclass
+class PhotoCandidate:
+    path: Path
+    sharpness: float
+    detail_ratio: float
+    contrast: float
+    brightness_mean: float
+    exposure_balance: float
+    perceptual_hash: imagehash.ImageHash
+    score: float = 0.0
+    score_breakdown: dict[str, float] = field(default_factory=dict)
+    selection_reason: str = ""
+
+
+@dataclass
+class SimilarPhotoGroup:
+    keeper: PhotoCandidate
+    rejected: list[PhotoCandidate] = field(default_factory=list)
 
 
 def normalize_email(email: str) -> str:
@@ -129,15 +169,16 @@ def log_session_start_once(email: str) -> None:
     log_google_form_event("session_start", email=email)
     st.session_state.session_start_logged = True
 
-GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv"
 
 @st.cache_data(ttl=60)
 def load_live_stats():
+    if requests is None or pd is None:
+        raise RuntimeError("Live stats dependencies are unavailable.")
+
     response = requests.get(GOOGLE_SHEET_CSV_URL, timeout=10)
     response.raise_for_status()
 
     df = pd.read_csv(StringIO(response.text))
-
     df.columns = (
         df.columns
         .str.strip()
@@ -153,7 +194,7 @@ def load_live_stats():
     return total_sessions, total_photos, total_exports, total_hours_saved
 
 
-def render_live_stats():
+def render_live_stats() -> None:
     try:
         sessions, photos, exports, hours = load_live_stats()
 
@@ -163,35 +204,8 @@ def render_live_stats():
         cols[1].metric("Photos processed", int(photos))
         cols[2].metric("Exports", int(exports))
         cols[3].metric("Hours saved", round(hours, 1))
-
     except Exception:
         st.info("Live stats temporarily unavailable.")
-@dataclass
-class CanvasSettings:
-    width: int
-    height: int
-    padding: int
-    create_exports: bool
-
-
-@dataclass
-class PhotoCandidate:
-    path: Path
-    sharpness: float
-    detail_ratio: float
-    contrast: float
-    brightness_mean: float
-    exposure_balance: float
-    perceptual_hash: imagehash.ImageHash
-    score: float = 0.0
-    score_breakdown: dict[str, float] = field(default_factory=dict)
-    selection_reason: str = ""
-
-
-@dataclass
-class SimilarPhotoGroup:
-    keeper: PhotoCandidate
-    rejected: list[PhotoCandidate] = field(default_factory=list)
 
 
 def ensure_directories() -> None:
@@ -216,12 +230,40 @@ def get_image_files(folder: Path) -> list[Path]:
     )
 
 
-def load_image_metrics(image_path: Path) -> PhotoCandidate | None:
-    image = cv2.imread(str(image_path))
-    if image is None:
+def iter_chunks(items: list[Path], chunk_size: int):
+    for start in range(0, len(items), chunk_size):
+        yield items[start:start + chunk_size]
+
+
+def load_analysis_preview(image_path: Path) -> Image.Image | None:
+    try:
+        with Image.open(image_path) as img:
+            img = img.convert("RGB")
+
+            if img.width > ANALYSIS_MAX_WIDTH:
+                scale = ANALYSIS_MAX_WIDTH / img.width
+                preview_size = (ANALYSIS_MAX_WIDTH, max(1, int(img.height * scale)))
+                img = img.resize(preview_size, RESAMPLING.LANCZOS)
+            else:
+                img = img.copy()
+
+            return img
+    except Exception:
         return None
 
+
+def load_display_preview(image_path: Path) -> Image.Image | None:
+    return load_analysis_preview(image_path)
+
+
+def load_image_metrics(image_path: Path) -> PhotoCandidate | None:
+    preview = load_analysis_preview(image_path)
+    if preview is None:
+        return None
+
+    image = cv2.cvtColor(np.array(preview), cv2.COLOR_RGB2BGR)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
     sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     contrast = float(gray.std())
     brightness_mean = float(gray.mean())
@@ -232,8 +274,7 @@ def load_image_metrics(image_path: Path) -> PhotoCandidate | None:
     exposure_balance = max(0.0, 1.0 - abs(brightness_mean - 127.5) / 127.5)
 
     try:
-        with Image.open(image_path) as pil_image:
-            perceptual_hash = imagehash.phash(pil_image)
+        perceptual_hash = imagehash.phash(preview)
     except Exception:
         return None
 
@@ -339,23 +380,27 @@ def filter_blurry_images(
     blurry_count = 0
     unreadable_count = 0
     total_images = len(image_files)
+    processed_count = 0
 
-    for index, image_path in enumerate(image_files, start=1):
-        if progress_text is not None:
-            progress_text.text(f"Analyzing image {index} of {total_images}...")
-        if progress_bar is not None and total_images > 0:
-            progress_bar.progress(index / total_images)
+    for chunk in iter_chunks(image_files, PROCESSING_CHUNK_SIZE):
+        for image_path in chunk:
+            processed_count += 1
 
-        candidate = load_image_metrics(image_path)
-        if candidate is None:
-            unreadable_count += 1
-            continue
+            if progress_text is not None:
+                progress_text.text(f"Analyzing image {processed_count} of {total_images}...")
+            if progress_bar is not None and total_images > 0:
+                progress_bar.progress(processed_count / total_images)
 
-        if candidate.sharpness < blur_threshold:
-            blurry_count += 1
-            continue
+            candidate = load_image_metrics(image_path)
+            if candidate is None:
+                unreadable_count += 1
+                continue
 
-        candidates.append(candidate)
+            if candidate.sharpness < blur_threshold:
+                blurry_count += 1
+                continue
+
+            candidates.append(candidate)
 
     return candidates, blurry_count, unreadable_count
 
@@ -491,20 +536,25 @@ def process_images(
 def save_uploaded_files(uploaded_files: list) -> None:
     ensure_directories()
     clear_output_folder(INPUT_DIR)
+    clear_output_folder(OUTPUT_DIR)
+    clear_output_folder(CANVAS_DIR)
 
     for uploaded_file in uploaded_files:
         file_name = Path(uploaded_file.name).name
         file_path = INPUT_DIR / file_name
+
         with open(file_path, "wb") as file_handle:
             file_handle.write(uploaded_file.getbuffer())
 
 
 def make_zip(folder: Path, zip_name: str) -> Path:
     zip_path = Path(zip_name)
+
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
         for file in sorted(folder.iterdir()):
             if file.is_file():
                 zip_file.write(file, arcname=file.name)
+
     return zip_path
 
 
@@ -519,6 +569,7 @@ def render_summary(results: dict) -> None:
 
 def render_selected_table(candidates: list[PhotoCandidate]) -> None:
     table_rows = []
+
     for rank, candidate in enumerate(candidates, start=1):
         table_rows.append(
             {
@@ -536,19 +587,28 @@ def render_selected_table(candidates: list[PhotoCandidate]) -> None:
     st.dataframe(table_rows, use_container_width=True, hide_index=True)
 
 
-def render_image_grid(
-    candidates: list[PhotoCandidate],
-) -> None:
+def render_image_grid(candidates: list[PhotoCandidate]) -> None:
     if not candidates:
         return
 
+    preview_candidates = candidates[:UI_PREVIEW_LIMIT]
     columns = st.columns(3)
 
-    for index, candidate in enumerate(candidates):
+    for index, candidate in enumerate(preview_candidates):
         with columns[index % 3]:
-            st.image(str(candidate.path), use_container_width=True)
+            preview = load_display_preview(candidate.path)
+            st.image(
+                preview if preview is not None else str(candidate.path),
+                use_container_width=True,
+            )
             st.caption(f"#{index + 1} {candidate.path.name}")
             st.caption(candidate.selection_reason)
+
+    if len(candidates) > UI_PREVIEW_LIMIT:
+        st.caption(
+            f"Showing the first {UI_PREVIEW_LIMIT} previews only. "
+            f"All {len(candidates)} selected photos remain available for export."
+        )
 
 
 def get_duplicate_candidate_lookup(
@@ -558,6 +618,7 @@ def get_duplicate_candidate_lookup(
 
     for group in duplicate_groups:
         lookup[group.keeper.path.name] = group.keeper
+
         for candidate in group.rejected:
             lookup[candidate.path.name] = candidate
 
@@ -600,10 +661,14 @@ def render_compare_similar_photos(
     candidates: list[PhotoCandidate],
     duplicate_groups: list[SimilarPhotoGroup],
 ) -> list[PhotoCandidate]:
+    preview_candidate_names = {
+        candidate.path.name
+        for candidate in candidates[:UI_PREVIEW_LIMIT]
+    }
     relevant_groups = [
         group
         for group in duplicate_groups
-        if group.keeper.path.name in {candidate.path.name for candidate in candidates}
+        if group.keeper.path.name in preview_candidate_names
     ]
 
     if not relevant_groups:
@@ -631,7 +696,11 @@ def render_compare_similar_photos(
 
         for option_index, candidate in enumerate(all_options):
             with columns[option_index]:
-                st.image(str(candidate.path), use_container_width=True)
+                preview = load_display_preview(candidate.path)
+                st.image(
+                    preview if preview is not None else str(candidate.path),
+                    use_container_width=True,
+                )
                 label = "Current pick" if candidate.path.name == current_name else "Use this instead"
                 st.caption(f"{candidate.path.name} | Score {candidate.score:.1f}")
 
@@ -646,6 +715,12 @@ def render_compare_similar_photos(
                         replacement_name=candidate.path.name,
                     )
                     st.rerun()
+
+    if len(candidates) > UI_PREVIEW_LIMIT:
+        st.caption(
+            f"Compare mode is shown for the first {UI_PREVIEW_LIMIT} shortlisted previews "
+            "to keep large batches stable."
+        )
 
     return apply_similar_photo_swaps(candidates, duplicate_groups)
 
@@ -666,6 +741,7 @@ def reset_manual_selection(candidates: list[PhotoCandidate]) -> None:
 
 def get_selected_candidates(candidates: list[PhotoCandidate]) -> list[PhotoCandidate]:
     selected_filenames = set(st.session_state.get("selected_filenames", set()))
+
     return [
         candidate
         for candidate in candidates
@@ -687,19 +763,27 @@ def get_export_signature(
         canvas_settings.padding,
         canvas_settings.create_exports,
     )
+
     return selected_signature + canvas_signature
 
 
 def render_manual_selection_grid(candidates: list[PhotoCandidate]) -> list[PhotoCandidate]:
     selected_filenames = set(st.session_state.get("selected_filenames", set()))
+    preview_candidates = candidates[:UI_PREVIEW_LIMIT]
+    remaining_candidates = candidates[UI_PREVIEW_LIMIT:]
     columns = st.columns(3)
 
-    for index, candidate in enumerate(candidates):
+    for index, candidate in enumerate(preview_candidates):
         checkbox_key = f"select_photo__{candidate.path.name}"
 
         with columns[index % 3]:
-            st.image(str(candidate.path), use_container_width=True)
+            preview = load_display_preview(candidate.path)
+            st.image(
+                preview if preview is not None else str(candidate.path),
+                use_container_width=True,
+            )
             st.caption(f"#{index + 1} {candidate.path.name}")
+
             is_checked = st.checkbox(
                 "Keep in final export",
                 value=candidate.path.name in selected_filenames,
@@ -711,12 +795,33 @@ def render_manual_selection_grid(candidates: list[PhotoCandidate]) -> list[Photo
         else:
             selected_filenames.discard(candidate.path.name)
 
+    if remaining_candidates:
+        with st.expander(f"Additional selected files ({len(remaining_candidates)})"):
+            st.caption(
+                "These are still selected/exportable, but image previews are hidden "
+                "to keep large batches from timing out."
+            )
+
+            for index, candidate in enumerate(remaining_candidates, start=UI_PREVIEW_LIMIT + 1):
+                checkbox_key = f"select_photo__{candidate.path.name}"
+                is_checked = st.checkbox(
+                    f"#{index} {candidate.path.name}",
+                    value=candidate.path.name in selected_filenames,
+                    key=checkbox_key,
+                )
+
+                if is_checked:
+                    selected_filenames.add(candidate.path.name)
+                else:
+                    selected_filenames.discard(candidate.path.name)
+
     st.session_state.selected_filenames = selected_filenames
     return get_selected_candidates(candidates)
 
 
 def render_downloads(results: dict, create_canvas_exports: bool) -> None:
     output_zip = make_zip(OUTPUT_DIR, "selected_photos.zip")
+
     with open(output_zip, "rb") as output_handle:
         st.download_button(
             "Download Selected Photos ZIP",
@@ -727,6 +832,7 @@ def render_downloads(results: dict, create_canvas_exports: bool) -> None:
 
     if create_canvas_exports and results["canvas_files"]:
         canvas_zip = make_zip(CANVAS_DIR, "canvas_photos.zip")
+
         with open(canvas_zip, "rb") as canvas_handle:
             st.download_button(
                 "Download Canvas Photos ZIP",
@@ -765,7 +871,7 @@ def main() -> None:
     st.sidebar.header("Canvas Settings")
     create_canvas_exports = st.sidebar.checkbox(
         "Create Instagram-ready white canvas exports",
-        value=True,
+        value=False,
     )
     canvas_width = 1080
     canvas_height = 1350
@@ -780,21 +886,6 @@ def main() -> None:
         "Upload your photos",
         type=["jpg", "jpeg", "png", "webp"],
         accept_multiple_files=True,
-    
-    )
-    st.markdown(
-        """
-        <div style='
-            background-color: rgba(255,255,255,0.85);
-            color: black;
-            padding: 10px;
-            border-radius: 4px;
-            font-weight: 500;
-        '>
-        ⬇️ Upload your photos here. After processing, scroll to the VERY BOTTOM to download your final selected photos.
-        </div>
-        """,
-        unsafe_allow_html=True
     )
 
     st.markdown(
@@ -806,12 +897,25 @@ def main() -> None:
             border-radius: 4px;
             font-weight: 500;
         '>
-        💻 Works best on a computer for fastest uploads, best experience and full options view.
+        ⬆️ Upload your photos here. After processing, scroll to the bottom to download your final selected photos.
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-
+    st.markdown(
+        """
+        <div style='
+            background-color: rgba(255,255,255,0.85);
+            color: black;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: 500;
+        '>
+        💻 Works best on a computer for fastest uploads, best experience, and full options view.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(
         """
         <div style='
@@ -824,9 +928,9 @@ def main() -> None:
         📱 On mobile, use the arrows in the top left for sorting options.
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-    
+
     email = normalize_email(
         st.text_input("Email (optional, used only to track usage impact)")
     )
@@ -859,6 +963,7 @@ def main() -> None:
         st.session_state.cull_results = results
         st.session_state.last_photos_processed = results["total"]
         st.session_state.current_batch_id = st.session_state.get("current_batch_id", 0) + 1
+
         log_google_form_event(
             "photos_processed",
             email=email,
@@ -899,6 +1004,7 @@ def main() -> None:
         f"Final ranking uses the {results['scoring_preset']} preset after blur "
         "filtering and duplicate removal."
     )
+
     render_selected_table(effective_candidates)
 
     st.write("### Selected Photos")
@@ -931,6 +1037,7 @@ def main() -> None:
 
         current_batch_id = st.session_state.get("current_batch_id")
         counted_export_batch_ids = list(st.session_state.get("counted_export_batch_ids", []))
+
         if current_batch_id not in counted_export_batch_ids:
             minutes_saved = calculate_minutes_saved(
                 st.session_state.get("last_photos_processed", results["total"]),
@@ -954,16 +1061,28 @@ def main() -> None:
     if export_results and export_signature == current_signature:
         if canvas_settings.create_exports and export_results["canvas_files"]:
             st.write("### Canvas Versions")
+            canvas_preview_files = export_results["canvas_files"][:UI_PREVIEW_LIMIT]
             canvas_columns = st.columns(3)
-            for index, image_path in enumerate(export_results["canvas_files"]):
+
+            for index, image_path in enumerate(canvas_preview_files):
                 with canvas_columns[index % 3]:
-                    st.image(str(image_path), caption=image_path.name, use_container_width=True)
+                    preview = load_display_preview(image_path)
+                    st.image(
+                        preview if preview is not None else str(image_path),
+                        caption=image_path.name,
+                        use_container_width=True,
+                    )
+
+            if len(export_results["canvas_files"]) > UI_PREVIEW_LIMIT:
+                st.caption(
+                    f"Showing the first {UI_PREVIEW_LIMIT} canvas previews only. "
+                    f"All {len(export_results['canvas_files'])} canvas files are included in the ZIP."
+                )
 
         render_downloads(export_results, canvas_settings.create_exports)
 
     elif export_results:
         st.info("Your manual selection changed. Export checked photos again to refresh the ZIP files.")
-
 
 
 if __name__ == "__main__":
