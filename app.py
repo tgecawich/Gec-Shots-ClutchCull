@@ -108,6 +108,384 @@ class SimilarPhotoGroup:
     rejected: list[PhotoCandidate] = field(default_factory=list)
 
 
+def inject_custom_css() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --clutch-bg: #090713;
+            --clutch-panel: rgba(22, 18, 38, 0.92);
+            --clutch-panel-soft: rgba(255, 255, 255, 0.055);
+            --clutch-border: rgba(255, 255, 255, 0.12);
+            --clutch-text: #f8f4ff;
+            --clutch-muted: #b7aacb;
+            --clutch-orange: #ff8a2a;
+            --clutch-gold: #ffc15a;
+            --clutch-purple: #7b3cff;
+            --clutch-pink: #ff4ecd;
+        }
+
+        .stApp {
+            background:
+                radial-gradient(circle at 12% 8%, rgba(123, 60, 255, 0.34), transparent 34rem),
+                radial-gradient(circle at 92% 18%, rgba(255, 138, 42, 0.25), transparent 28rem),
+                linear-gradient(135deg, #070510 0%, #111025 46%, #090713 100%);
+            color: var(--clutch-text);
+        }
+
+        .block-container {
+            max-width: 1220px;
+            padding-top: 2rem;
+            padding-bottom: 4rem;
+        }
+
+        [data-testid="stSidebar"] {
+            background:
+                linear-gradient(180deg, rgba(16, 12, 31, 0.98), rgba(8, 6, 18, 0.98));
+            border-right: 1px solid var(--clutch-border);
+        }
+
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] span {
+            color: var(--clutch-text);
+        }
+
+        .clutch-hero {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 28px;
+            padding: clamp(1.4rem, 4vw, 3.2rem);
+            margin-bottom: 1.4rem;
+            background:
+                linear-gradient(135deg, rgba(123, 60, 255, 0.38), rgba(255, 138, 42, 0.22)),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+            box-shadow: 0 28px 90px rgba(0, 0, 0, 0.38);
+        }
+
+        .clutch-hero:before {
+            content: "";
+            position: absolute;
+            inset: -35%;
+            background:
+                radial-gradient(circle, rgba(255, 255, 255, 0.16) 0 1px, transparent 1px);
+            background-size: 28px 28px;
+            transform: rotate(-8deg);
+            opacity: 0.28;
+        }
+
+        .clutch-hero-content {
+            position: relative;
+            z-index: 1;
+            max-width: 830px;
+        }
+
+        .clutch-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.42rem 0.72rem;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
+            background: rgba(8, 6, 18, 0.46);
+            color: #ffe2bd;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .clutch-logo {
+            margin-top: 1rem;
+            color: var(--clutch-text);
+            font-size: clamp(2.4rem, 7vw, 5.2rem);
+            line-height: 0.9;
+            font-weight: 950;
+            letter-spacing: -0.08em;
+        }
+
+        .clutch-logo span {
+            background: linear-gradient(90deg, var(--clutch-orange), var(--clutch-pink));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .clutch-headline {
+            margin-top: 1rem;
+            margin-bottom: 0.7rem;
+            color: var(--clutch-text);
+            font-size: clamp(1.55rem, 4vw, 3.3rem);
+            line-height: 1.02;
+            font-weight: 900;
+            letter-spacing: -0.055em;
+        }
+
+        .clutch-subheadline {
+            max-width: 760px;
+            color: #efe9ff;
+            font-size: clamp(1rem, 2vw, 1.18rem);
+            line-height: 1.65;
+        }
+
+        .clutch-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            margin-top: 1.35rem;
+        }
+
+        .clutch-pill {
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
+            padding: 0.48rem 0.78rem;
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff4e8;
+            font-size: 0.88rem;
+            font-weight: 750;
+        }
+
+        .clutch-section {
+            margin: 2rem 0 0.85rem;
+        }
+
+        .clutch-section-label {
+            display: inline-flex;
+            padding: 0.32rem 0.62rem;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 138, 42, 0.26);
+            background: rgba(255, 138, 42, 0.12);
+            color: #ffd7b4;
+            font-size: 0.72rem;
+            font-weight: 850;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .clutch-section h2 {
+            margin: 0.72rem 0 0.25rem;
+            color: var(--clutch-text);
+            font-size: clamp(1.45rem, 3vw, 2.2rem);
+            line-height: 1.05;
+            font-weight: 900;
+            letter-spacing: -0.045em;
+        }
+
+        .clutch-section p {
+            margin: 0;
+            max-width: 760px;
+            color: var(--clutch-muted);
+            line-height: 1.55;
+        }
+
+        .clutch-card {
+            border: 1px solid var(--clutch-border);
+            border-radius: 22px;
+            padding: 1.1rem 1.2rem;
+            margin: 0.75rem 0 1.1rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+        }
+
+        .clutch-upload-card {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 26px;
+            padding: 1.2rem;
+            background:
+                linear-gradient(135deg, rgba(255, 138, 42, 0.12), rgba(123, 60, 255, 0.14)),
+                rgba(255, 255, 255, 0.04);
+        }
+
+        .clutch-upload-title {
+            margin: 0;
+            color: var(--clutch-text);
+            font-size: 1.45rem;
+            font-weight: 900;
+            letter-spacing: -0.035em;
+        }
+
+        .clutch-upload-copy {
+            margin: 0.35rem 0 0;
+            color: var(--clutch-muted);
+            line-height: 1.55;
+        }
+
+        .clutch-metric-card {
+            min-height: 116px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 20px;
+            padding: 1rem;
+            background:
+                radial-gradient(circle at 90% 10%, rgba(255, 138, 42, 0.20), transparent 45%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.20);
+        }
+
+        .clutch-metric-label {
+            color: var(--clutch-muted);
+            font-size: 0.76rem;
+            font-weight: 850;
+            letter-spacing: 0.095em;
+            text-transform: uppercase;
+        }
+
+        .clutch-metric-value {
+            margin-top: 0.45rem;
+            color: var(--clutch-text);
+            font-size: clamp(1.55rem, 4vw, 2.3rem);
+            font-weight: 950;
+            letter-spacing: -0.055em;
+        }
+
+        .clutch-note {
+            border: 1px solid rgba(255, 193, 90, 0.22);
+            border-radius: 16px;
+            padding: 0.85rem 1rem;
+            margin: 0.55rem 0 1rem;
+            background: rgba(255, 193, 90, 0.08);
+            color: #ffe2bd;
+            font-size: 0.94rem;
+            line-height: 1.5;
+        }
+
+        .stButton > button,
+        .stDownloadButton > button {
+            border: 1px solid rgba(255, 255, 255, 0.14) !important;
+            border-radius: 999px !important;
+            background: linear-gradient(90deg, #ff8a2a, #ff4ecd, #7b3cff) !important;
+            color: white !important;
+            font-weight: 850 !important;
+            letter-spacing: -0.015em;
+            box-shadow: 0 12px 34px rgba(123, 60, 255, 0.28);
+        }
+
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 16px 44px rgba(255, 138, 42, 0.26);
+        }
+
+        [data-testid="stFileUploader"] {
+            border: 1px dashed rgba(255, 255, 255, 0.28);
+            border-radius: 20px;
+            padding: 0.7rem;
+            background: rgba(255, 255, 255, 0.055);
+        }
+
+        [data-testid="stDataFrame"],
+        [data-testid="stTable"] {
+            border-radius: 18px;
+            overflow: hidden;
+            border: 1px solid var(--clutch-border);
+        }
+
+        img {
+            border-radius: 18px;
+        }
+
+        .stAlert {
+            border-radius: 18px;
+        }
+
+        @media (max-width: 720px) {
+            .block-container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+                padding-top: 1rem;
+            }
+
+            .clutch-hero {
+                border-radius: 22px;
+                padding: 1.25rem;
+            }
+
+            .clutch-pills {
+                gap: 0.45rem;
+            }
+
+            .clutch-pill {
+                font-size: 0.78rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_hero() -> None:
+    st.markdown(
+        """
+        <section class="clutch-hero">
+            <div class="clutch-hero-content">
+                <div class="clutch-kicker">Creator-tech culling suite</div>
+                <div class="clutch-logo">Clutch<span>Cull</span></div>
+                <h1 class="clutch-headline">AI photo culling for sports photographers</h1>
+                <p class="clutch-subheadline">
+                    Upload a full shoot, cut blurry frames, remove near-duplicates, and rank the best
+                    action shots while preserving your original files for clean export.
+                </p>
+                <div class="clutch-pills">
+                    <span class="clutch-pill">AI-powered</span>
+                    <span class="clutch-pill">Built for sports</span>
+                    <span class="clutch-pill">Fast workflow</span>
+                </div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_header(label: str, title: str, description: str = "") -> None:
+    description_html = f"<p>{description}</p>" if description else ""
+    st.markdown(
+        f"""
+        <div class="clutch-section">
+            <span class="clutch-section-label">{label}</span>
+            <h2>{title}</h2>
+            {description_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_metric_cards(metrics: list[tuple[str, str | int | float]]) -> None:
+    columns = st.columns(len(metrics))
+
+    for column, (label, value) in zip(columns, metrics):
+        with column:
+            st.markdown(
+                f"""
+                <div class="clutch-metric-card">
+                    <div class="clutch-metric-label">{label}</div>
+                    <div class="clutch-metric-value">{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_preview_note(extra: str = "") -> None:
+    message = (
+        f"Showing top {UI_PREVIEW_LIMIT} previews for performance. "
+        "All selected files can still be exported."
+    )
+    if extra:
+        message = f"{message} {extra}"
+
+    st.markdown(
+        f'<div class="clutch-note">{message}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def normalize_email(email: str) -> str:
     return email.strip().lower()
 
@@ -307,12 +685,19 @@ def render_live_stats() -> None:
     try:
         sessions, photos, exports, hours = load_live_stats()
 
-        st.write("### Live Impact Dashboard")
-        cols = st.columns(4)
-        cols[0].metric("Sessions", int(sessions))
-        cols[1].metric("Photos processed", int(photos))
-        cols[2].metric("Exports", int(exports))
-        cols[3].metric("Hours saved", round(hours, 1))
+        render_section_header(
+            "Live proof",
+            "Impact Dashboard",
+            "A real-time look at how many shoots ClutchCull has helped speed up.",
+        )
+        render_metric_cards(
+            [
+                ("Sessions", f"{int(sessions):,}"),
+                ("Photos processed", f"{int(photos):,}"),
+                ("Exports", f"{int(exports):,}"),
+                ("Hours saved", f"{round(hours, 1):,}"),
+            ]
+        )
     except Exception:
         st.info("Live stats temporarily unavailable.")
 
@@ -747,12 +1132,20 @@ def make_zip(folder: Path, zip_name: str) -> Path:
 
 
 def render_summary(results: dict) -> None:
-    metric_columns = st.columns(5)
-    metric_columns[0].metric("Uploaded", results["total"])
-    metric_columns[1].metric("Blurred Removed", results["blurry_removed"])
-    metric_columns[2].metric("Duplicates Removed", results["duplicates_removed"])
-    metric_columns[3].metric("Unreadable Skipped", results["unreadable_skipped"])
-    metric_columns[4].metric("Auto Shortlist", results["selected"])
+    render_section_header(
+        "Results",
+        "Cull Summary",
+        "A quick read on what ClutchCull kept, removed, and shortlisted from this batch.",
+    )
+    render_metric_cards(
+        [
+            ("Uploaded", f"{results['total']:,}"),
+            ("Blurred removed", f"{results['blurry_removed']:,}"),
+            ("Duplicates removed", f"{results['duplicates_removed']:,}"),
+            ("Unreadable skipped", f"{results['unreadable_skipped']:,}"),
+            ("Auto shortlist", f"{results['selected']:,}"),
+        ]
+    )
 
 
 def render_selected_table(candidates: list[PhotoCandidate]) -> None:
@@ -779,10 +1172,7 @@ def render_image_grid(candidates: list[PhotoCandidate]) -> None:
     if not candidates:
         return
 
-    st.caption(
-        f"Showing top {UI_PREVIEW_LIMIT} previews for performance. "
-        "All selected files can still be exported."
-    )
+    render_preview_note()
 
     preview_candidates = candidates[:UI_PREVIEW_LIMIT]
     columns = st.columns(3)
@@ -867,11 +1257,12 @@ def render_compare_similar_photos(
     if not relevant_groups:
         return candidates
 
-    st.write("### Compare Similar Photos")
-    st.caption(
-        f"Showing top {UI_PREVIEW_LIMIT} previews for performance. "
-        "All selected files can still be exported."
+    render_section_header(
+        "Review",
+        "Compare Similar Photos",
+        "Swap a keeper with a near-duplicate when the rejected frame has the better moment.",
     )
+    render_preview_note()
 
     swaps = st.session_state.get("similar_photo_swaps", {})
 
@@ -990,10 +1381,7 @@ def render_manual_selection_grid(candidates: list[PhotoCandidate]) -> list[Photo
     remaining_candidates = candidates[UI_PREVIEW_LIMIT:]
     columns = st.columns(3)
 
-    st.caption(
-        f"Showing top {UI_PREVIEW_LIMIT} previews for performance. "
-        "All selected files can still be exported."
-    )
+    render_preview_note()
 
     for index, candidate in enumerate(preview_candidates):
         checkbox_key = f"select_photo__{candidate.path.name}"
@@ -1073,29 +1461,59 @@ def main() -> None:
     ensure_directories()
 
     st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
+    inject_custom_css()
 
-    st.title("Gec Shots ClutchCull")
-    st.subheader("AI culling for sports photographers")
-    st.write("Upload a batch, filter weak frames, remove duplicates, and keep the best shots.")
-
+    render_hero()
     render_live_stats()
 
-    st.sidebar.header("Culling Settings")
+    st.sidebar.markdown("## ClutchCull Control Room")
+    st.sidebar.caption("Tune the culling engine for the type of shoot you are sorting.")
+    st.sidebar.markdown("### Culling Engine")
     scoring_preset = st.sidebar.selectbox(
         "Scoring Preset",
         list(SCORING_PRESETS.keys()),
         index=list(SCORING_PRESETS.keys()).index("Balanced"),
+        help="Choose how ClutchCull weighs sharpness, detail, contrast, and exposure.",
     )
-    blur_threshold = st.sidebar.slider("Blur Threshold", 0.0, 100.0, 12.0, 1.0)
-    duplicate_threshold = st.sidebar.slider("Duplicate Threshold", 0, 10, 2, 1)
-    top_n = st.sidebar.slider("Number of Final Photos", 1, 100, 35, 1)
-    seconds_per_photo = st.sidebar.slider("Manual review seconds per photo", 2, 15, 6, 1)
+    blur_threshold = st.sidebar.slider(
+        "Blur Threshold",
+        0.0,
+        100.0,
+        12.0,
+        1.0,
+        help="Higher values are stricter and remove more soft images.",
+    )
+    duplicate_threshold = st.sidebar.slider(
+        "Duplicate Threshold",
+        0,
+        10,
+        2,
+        1,
+        help="Higher values remove more near-identical frames.",
+    )
+    top_n = st.sidebar.slider(
+        "Number of Final Photos",
+        1,
+        100,
+        35,
+        1,
+        help="Maximum number of auto-ranked photos to send into final review.",
+    )
+    seconds_per_photo = st.sidebar.slider(
+        "Manual review seconds per photo",
+        2,
+        15,
+        6,
+        1,
+        help="Used only for the estimated time-saved impact metric.",
+    )
 
     st.sidebar.caption(
-        "Higher blur thresholds are stricter. Higher duplicate thresholds remove more lookalike frames."
+        "Tip: for sports bursts, keep duplicate removal moderate so you can compare key moments."
     )
 
-    st.sidebar.header("Canvas Settings")
+    st.sidebar.markdown("### Canvas Exports")
+    st.sidebar.caption("Optional white-canvas versions for social posting. Default is off for faster exports.")
     create_canvas_exports = st.sidebar.checkbox(
         "Create Instagram-ready white canvas exports",
         value=False,
@@ -1114,59 +1532,34 @@ def main() -> None:
     else:
         st.sidebar.info("Using local temporary storage.")
 
-    uploaded_files = st.file_uploader(
-        "Upload your photos",
-        type=["jpg", "jpeg", "png", "webp"],
-        accept_multiple_files=True,
+    render_section_header(
+        "Start here",
+        "Drop your shoot here",
+        "Upload the full batch. ClutchCull analyzes optimized previews while preserving originals for export.",
     )
-
-    st.markdown(
-        """
-        <div style='
-            background-color: rgba(255,255,255,0.85);
-            color: black;
-            padding: 10px;
-            border-radius: 4px;
-            font-weight: 500;
-        '>
-        Upload your photos here. After processing, scroll to the bottom to download your final selected photos.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        """
-        <div style='
-            background-color: rgba(255,255,255,0.85);
-            color: black;
-            padding: 10px;
-            border-radius: 4px;
-            font-weight: 500;
-        '>
-        Works best on a computer for fastest uploads, best experience, and full options view.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        """
-        <div style='
-            background-color: rgba(255,255,255,0.85);
-            color: black;
-            padding: 10px;
-            border-radius: 4px;
-            font-weight: 500;
-        '>
-        On mobile, use the arrows in the top left for sorting options.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    email = normalize_email(
-        st.text_input("Email (optional, used only to track usage impact)")
-    )
-    st.caption("Used only to track app usage and improve the tool. No spam.")
+    upload_card = st.container(border=True)
+    with upload_card:
+        st.markdown(
+            """
+            <div class="clutch-upload-card">
+                <h3 class="clutch-upload-title">Drop your shoot here</h3>
+                <p class="clutch-upload-copy">
+                    ClutchCull analyzes optimized previews while preserving originals for export.
+                    Best on desktop for large batches; mobile users can open the sidebar for controls.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        uploaded_files = st.file_uploader(
+            "Upload game, event, or portrait photos",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True,
+        )
+        email = normalize_email(
+            st.text_input("Email (optional, used only to track usage impact)")
+        )
+        st.caption("Used only to track app usage and improve the tool. No spam.")
 
     log_session_start_once(email)
 
@@ -1220,7 +1613,7 @@ def main() -> None:
         create_exports=create_canvas_exports,
     )
 
-    st.success("Processing complete.")
+    st.success("Processing complete. Your shortlist is ready for review.")
     render_summary(results)
 
     duplicate_groups = results.get("duplicate_groups", [])
@@ -1236,14 +1629,22 @@ def main() -> None:
         )
         return
 
-    st.write("### Selection Notes")
+    render_section_header(
+        "Ranking",
+        "Why these shots were selected",
+        "The table keeps the decision-making transparent: score, sharpness, detail, contrast, brightness, and the selection reason.",
+    )
     st.write(
         f"Final ranking uses the {results['scoring_preset']} preset after blur "
         "filtering and duplicate removal."
     )
     render_selected_table(effective_candidates)
 
-    st.write("### Selected Photos")
+    render_section_header(
+        "Shortlist",
+        "Top Picks",
+        "A fast visual pass over the highest-ranked frames before you make final calls.",
+    )
     render_image_grid(effective_candidates)
 
     effective_candidates = render_compare_similar_photos(
@@ -1251,7 +1652,11 @@ def main() -> None:
         duplicate_groups,
     )
 
-    st.write("### Manual Final Selection")
+    render_section_header(
+        "Final pass",
+        "Final Review",
+        "Keep the frames that should make the delivery. Hidden extra files are still selectable and exportable.",
+    )
     selected_candidates = render_manual_selection_grid(effective_candidates)
     st.write(f"{len(selected_candidates)} of {len(effective_candidates)} photos selected for export.")
 
@@ -1259,6 +1664,11 @@ def main() -> None:
     export_results = st.session_state.get("export_results")
     export_signature = st.session_state.get("export_signature")
 
+    render_section_header(
+        "Delivery",
+        "Export Your Picks",
+        "Build a ZIP of every checked photo. Full-size ZIPs can take longer on large batches.",
+    )
     if st.button("Export Checked Photos", type="primary", disabled=not selected_candidates):
         with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
             saved_files, canvas_files = export_selected_images(
