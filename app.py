@@ -215,6 +215,15 @@ def inject_custom_css() -> None:
             color: transparent;
         }
 
+        .clutch-byline {
+            margin-top: 0.55rem;
+            color: #ffe2bd;
+            font-size: 1rem;
+            font-weight: 850;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
         .clutch-headline {
             margin-top: 1rem;
             margin-bottom: 0.7rem;
@@ -353,6 +362,77 @@ def inject_custom_css() -> None:
             line-height: 1.5;
         }
 
+        .clutch-story-card {
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 24px;
+            padding: clamp(1.1rem, 3vw, 1.7rem);
+            background:
+                radial-gradient(circle at 88% 20%, rgba(255, 138, 42, 0.18), transparent 34%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+        }
+
+        .clutch-story-card h3 {
+            margin: 0 0 0.6rem;
+            color: var(--clutch-text);
+            font-size: clamp(1.25rem, 3vw, 1.8rem);
+            font-weight: 900;
+            letter-spacing: -0.04em;
+        }
+
+        .clutch-story-card p {
+            margin: 0;
+            color: #dfd5f4;
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        .clutch-step-card {
+            min-height: 152px;
+            border: 1px solid rgba(255, 255, 255, 0.13);
+            border-radius: 22px;
+            padding: 1.05rem;
+            background:
+                linear-gradient(145deg, rgba(123, 60, 255, 0.16), rgba(255, 138, 42, 0.08)),
+                rgba(255, 255, 255, 0.045);
+            box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
+        }
+
+        .clutch-step-number {
+            width: 2.2rem;
+            height: 2.2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: linear-gradient(135deg, var(--clutch-orange), var(--clutch-pink));
+            color: white;
+            font-weight: 950;
+        }
+
+        .clutch-step-title {
+            margin-top: 0.85rem;
+            color: var(--clutch-text);
+            font-size: 1.05rem;
+            font-weight: 850;
+            line-height: 1.25;
+        }
+
+        .clutch-proof-strip {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 0.58rem 0.9rem;
+            margin-bottom: 0.9rem;
+            background: rgba(255, 255, 255, 0.06);
+            color: #ffe2bd;
+            font-size: 0.92rem;
+            font-weight: 750;
+        }
+
         .stButton > button,
         .stDownloadButton > button {
             border: 1px solid rgba(255, 255, 255, 0.14) !important;
@@ -370,11 +450,101 @@ def inject_custom_css() -> None:
             box-shadow: 0 16px 44px rgba(255, 138, 42, 0.26);
         }
 
+        label,
+        [data-testid="stWidgetLabel"],
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] span {
+            color: #f8f7ff !important;
+            font-weight: 800 !important;
+        }
+
+        [data-testid="stCaptionContainer"],
+        [data-testid="stCaptionContainer"] p,
+        [data-testid="stCaptionContainer"] span,
+        small,
+        .stMarkdown small {
+            color: #d8d2f0 !important;
+        }
+
+        .stTextInput,
+        .stFileUploader {
+            color: #f8f7ff !important;
+        }
+
+        .stTextInput label,
+        .stFileUploader label,
+        .stTextInput [data-testid="stWidgetLabel"] p,
+        .stFileUploader [data-testid="stWidgetLabel"] p {
+            color: #f8f7ff !important;
+            font-weight: 850 !important;
+        }
+
+        .stTextInput input,
+        input,
+        textarea {
+            background: #f8f7ff !important;
+            color: #111827 !important;
+            border: 1px solid rgba(255, 255, 255, 0.28) !important;
+            border-radius: 14px !important;
+            caret-color: #7b3cff !important;
+            font-weight: 650 !important;
+        }
+
+        .stTextInput input:focus,
+        input:focus,
+        textarea:focus {
+            border-color: #ff8a2a !important;
+            box-shadow: 0 0 0 3px rgba(255, 138, 42, 0.22) !important;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #6b7280 !important;
+            opacity: 1 !important;
+        }
+
         [data-testid="stFileUploader"] {
             border: 1px dashed rgba(255, 255, 255, 0.28);
             border-radius: 20px;
             padding: 0.7rem;
-            background: rgba(255, 255, 255, 0.055);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.065));
+            color: #f8f7ff !important;
+        }
+
+        [data-testid="stFileUploader"] section {
+            border-color: rgba(255, 255, 255, 0.30) !important;
+            background: rgba(248, 247, 255, 0.96) !important;
+            color: #111827 !important;
+        }
+
+        [data-testid="stFileUploader"] section *,
+        [data-testid="stFileUploaderDropzone"] *,
+        [data-testid="stFileUploader"] [data-testid="stMarkdownContainer"] p {
+            color: #111827 !important;
+        }
+
+        [data-testid="stFileUploader"] button {
+            background: linear-gradient(90deg, #ff8a2a, #ff4ecd) !important;
+            border: 0 !important;
+            border-radius: 999px !important;
+            color: #ffffff !important;
+            font-weight: 850 !important;
+        }
+
+        [data-testid="stFileUploader"] button * {
+            color: #ffffff !important;
+        }
+
+        [data-testid="stFileUploader"] small,
+        [data-testid="stFileUploader"] [data-testid="stCaptionContainer"],
+        [data-testid="stFileUploader"] [data-testid="stCaptionContainer"] * {
+            color: #d8d2f0 !important;
+        }
+
+        .clutch-upload-card + div label,
+        .clutch-upload-card + div [data-testid="stWidgetLabel"] p {
+            color: #f8f7ff !important;
         }
 
         [data-testid="stDataFrame"],
@@ -442,6 +612,31 @@ def render_hero() -> None:
     )
 
 
+def render_landing_hero() -> None:
+    st.markdown(
+        """
+        <section class="clutch-hero">
+            <div class="clutch-hero-content">
+                <div class="clutch-kicker">Sports photography workflow</div>
+                <div class="clutch-logo">Clutch<span>Cull</span></div>
+                <div class="clutch-byline">by Gec Shots</div>
+                <h1 class="clutch-headline">Cull game-day shoots in minutes, not hours.</h1>
+                <p class="clutch-subheadline">
+                    Built by Gec Shots for sports photographers who come home with hundreds of frames,
+                    near-duplicates, blurry shots, and almost-moments.
+                </p>
+                <div class="clutch-pills">
+                    <span class="clutch-pill">AI-powered</span>
+                    <span class="clutch-pill">Built from the sideline</span>
+                    <span class="clutch-pill">Export-ready picks</span>
+                </div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_section_header(label: str, title: str, description: str = "") -> None:
     description_html = f"<p>{description}</p>" if description else ""
     st.markdown(
@@ -454,6 +649,95 @@ def render_section_header(label: str, title: str, description: str = "") -> None
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_hide_sidebar_css() -> None:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"],
+        [data-testid="collapsedControl"] {
+            display: none;
+        }
+
+        .block-container {
+            padding-left: clamp(1rem, 4vw, 3rem);
+            padding-right: clamp(1rem, 4vw, 3rem);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def get_live_stats_snapshot() -> tuple[int, int, int, float] | None:
+    try:
+        sessions, photos, exports, hours = load_live_stats()
+        return int(sessions), int(photos), int(exports), float(hours)
+    except Exception:
+        return None
+
+
+def render_workspace_proof_text() -> None:
+    stats = get_live_stats_snapshot()
+
+    if stats is None:
+        st.caption("Live proof: stats temporarily unavailable")
+        return
+
+    sessions, photos, exports, _hours = stats
+    st.markdown(
+        f"""
+        <div class="clutch-proof-strip">
+            Live proof: {sessions:,} sessions • {photos:,} photos processed • {exports:,} exports
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_built_from_sideline_card() -> None:
+    st.markdown(
+        """
+        <div class="clutch-story-card">
+            <h3>Built from the sideline</h3>
+            <p>
+                ClutchCull started inside the Gec Shots workflow: football, basketball, baseball,
+                hockey, and event galleries with hundreds of frames per shoot. The goal is simple —
+                cut the sorting time, keep the strongest images, and get photographers to the edit faster.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_how_it_works() -> None:
+    render_section_header(
+        "Workflow",
+        "How it works",
+        "A focused four-step flow from raw game-day batch to export-ready selects.",
+    )
+
+    steps = [
+        "Upload your shoot",
+        "ClutchCull removes blur and near-duplicates",
+        "Review the strongest frames",
+        "Export your final picks",
+    ]
+    columns = st.columns(4)
+
+    for index, (column, step) in enumerate(zip(columns, steps), start=1):
+        with column:
+            st.markdown(
+                f"""
+                <div class="clutch-step-card">
+                    <div class="clutch-step-number">{index}</div>
+                    <div class="clutch-step-title">{step}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def render_metric_cards(metrics: list[tuple[str, str | int | float]]) -> None:
@@ -972,8 +1256,6 @@ def remove_near_duplicates(
 
     duplicate_groups = list(duplicate_groups_by_keeper.values())
     return kept_candidates, duplicate_count, duplicate_groups
-
-
 def create_white_canvas(
     image_path: Path,
     output_path: Path,
@@ -1457,12 +1739,42 @@ def render_downloads(results: dict, create_canvas_exports: bool) -> None:
     safe_cleanup_after_download_ready()
 
 
+def render_landing_view() -> None:
+    render_hide_sidebar_css()
+    render_landing_hero()
+    render_live_stats()
+
+    if st.button("Start Sorting", type="primary"):
+        st.session_state["view"] = "workspace"
+        st.rerun()
+
+    render_section_header(
+        "Origin",
+        "Built for real game-day volume",
+        "ClutchCull is shaped around the pressure of getting hundreds of sports frames down to the real keepers.",
+    )
+    render_built_from_sideline_card()
+    render_how_it_works()
+
+
 def main() -> None:
     ensure_directories()
 
     st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
     inject_custom_css()
 
+    if "view" not in st.session_state:
+        st.session_state["view"] = "landing"
+
+    if st.session_state["view"] == "landing":
+        render_landing_view()
+        return
+
+    if st.button("← Back to Home"):
+        st.session_state["view"] = "landing"
+        st.rerun()
+
+    render_workspace_proof_text()
     render_hero()
     render_live_stats()
 
