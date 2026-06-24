@@ -4,6 +4,7 @@ import shutil
 import threading
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
@@ -36,9 +37,29 @@ CANVAS_DIR = Path("canvas_photos")
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 ANALYSIS_MAX_WIDTH = 1200
-PROCESSING_CHUNK_SIZE = 25
+# Metrics are computed at this width via a draft()-subsampled decode (see
+# load_metrics_image). Kept at 1200 to preserve the exact keeper SET: dropping
+# to 870 (a 1/8 decode) loses enough high-frequency detail to reselect a photo
+# in the top-N. At 1200 the decoder subsamples to 1/4 during decode, then a
+# cheap BILINEAR finishes the downscale. UI display previews are unaffected and
+# still use ANALYSIS_MAX_WIDTH with LANCZOS.
+METRICS_MAX_WIDTH = 1200
 UI_PREVIEW_LIMIT = 20
 RESAMPLING = getattr(Image, "Resampling", Image)
+
+# Per-image analysis (JPEG decode + cv2 ops) releases the GIL, so threads scale
+# well. Default to the CPU count; override via $CLUTCHCULL_WORKERS or the
+# max_workers arg. None/0 -> auto.
+def _default_worker_count() -> int:
+    env_value = os.getenv("CLUTCHCULL_WORKERS", "").strip()
+    if env_value:
+        try:
+            parsed = int(env_value)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+    return os.cpu_count() or 1
 
 GOOGLE_FORM_URL = "https://docs.google.com/forms/u/0/d/e/1FAIpQLSdE_xxiIaiHwYX9LQag1kipieTojmqEfqv1fVqwtsCKo45Mlg/formResponse"
 GOOGLE_FORM_FIELDS = {
@@ -689,7 +710,7 @@ def render_workspace_proof_text() -> None:
     st.markdown(
         f"""
         <div class="clutch-proof-strip">
-            Live proof: {sessions:,} sessions • {photos:,} photos processed • {exports:,} exports
+            Live proof: {sessions:,} sessions ‚Ä¢ {photos:,} photos processed ‚Ä¢ {exports:,} exports
         </div>
         """,
         unsafe_allow_html=True,
@@ -703,7 +724,7 @@ def render_built_from_sideline_card() -> None:
             <h3>Built from the sideline</h3>
             <p>
                 ClutchCull started inside the Gec Shots workflow: football, basketball, baseball,
-                hockey, and event galleries with hundreds of frames per shoot. The goal is simple —
+                hockey, and event galleries with hundreds of frames per shoot. The goal is simple ‚Äî
                 cut the sorting time, keep the strongest images, and get photographers to the edit faster.
             </p>
         </div>
@@ -836,6 +857,54 @@ def upload_file_to_r2(local_path: Path, r2_key: str) -> bool:
         return True
     except Exception:
         return False
+
+
+# Background pool for R2 uploads so saving/analysis never block on the network.
+# Created lazily and kept for the process lifetime (survives Streamlit reruns).
+_upload_executor: ThreadPoolExecutor | None = None
+_upload_executor_lock = threading.Lock()
+
+
+def _get_upload_executor() -> ThreadPoolExecutor:
+    global _upload_executor
+    if _upload_executor is None:
+        with _upload_executor_lock:
+            if _upload_executor is None:
+                try:
+                    workers = int(os.getenv("CLUTCHCULL_UPLOAD_WORKERS", "4"))
+                except ValueError:
+                    workers = 4
+                _upload_executor = ThreadPoolExecutor(
+                    max_workers=max(1, workers),
+                    thread_name_prefix="r2-upload",
+                )
+    return _upload_executor
+
+
+def _register_pending_uploads(futures: list) -> None:
+    """Track in-flight upload futures so we can drain them before cleanup."""
+    st.session_state.pending_upload_futures = list(futures)
+
+
+def wait_for_pending_uploads(timeout: float | None = None) -> None:
+    """Block until background R2 uploads for the current batch finish.
+
+    Best-effort and resilient: a failed upload is swallowed (the helper already
+    returns False / logs nothing), so a network hiccup never crashes the run.
+    Called before any local-original cleanup so we never delete a file that is
+    still waiting to be uploaded.
+    """
+    futures = st.session_state.get("pending_upload_futures", [])
+    if not futures:
+        return
+
+    for future in futures:
+        try:
+            future.result(timeout=timeout)
+        except Exception:
+            pass
+
+    st.session_state.pending_upload_futures = []
 
 
 def download_file_from_r2(r2_key: str, local_path: Path) -> bool:
@@ -1009,6 +1078,9 @@ def safe_cleanup_after_download_ready() -> None:
         return
 
     if r2_enabled():
+        # Make sure every background upload has landed before we delete the
+        # local originals it was reading from.
+        wait_for_pending_uploads()
         clear_output_folder(INPUT_DIR)
 
     st.session_state.cleanup_after_downloads = True
@@ -1028,11 +1100,6 @@ def get_image_files(folder: Path) -> list[Path]:
         for file in folder.iterdir()
         if file.is_file() and file.suffix.lower() in VALID_EXTENSIONS
     )
-
-
-def iter_chunks(items: list[Path], chunk_size: int):
-    for start in range(0, len(items), chunk_size):
-        yield items[start:start + chunk_size]
 
 
 def load_analysis_preview(image_path: Path) -> Image.Image | None:
@@ -1058,17 +1125,83 @@ def load_display_preview(image_path: Path, r2_key: str = "") -> Image.Image | No
     return load_analysis_preview(image_path)
 
 
-def load_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate | None:
-    preview = None
-    rgb_array = None
-    gray = None
-    edges = None
+def load_metrics_image(image_path: Path) -> Image.Image | None:
+    """Load a small RGB image for metric computation only (not display).
 
+    Uses Image.draft() so the JPEG decoder subsamples natively (typically 1/8)
+    *during* decode instead of fully decoding a ~32MP frame and then resizing.
+    Any residual downscale to METRICS_MAX_WIDTH uses BILINEAR, not LANCZOS:
+    metrics (Laplacian variance, Canny, contrast/brightness, pHash) don't need
+    the sharper, slower LANCZOS kernel.
+    """
+    try:
+        with Image.open(image_path) as img:
+            original_width, original_height = img.size
+
+            # Hint the decoder toward our target so it can subsample on decode.
+            # draft() only applies to JPEG; it's a no-op for other formats.
+            if original_width > METRICS_MAX_WIDTH:
+                scale = METRICS_MAX_WIDTH / original_width
+                target_size = (
+                    METRICS_MAX_WIDTH,
+                    max(1, int(original_height * scale)),
+                )
+                img.draft("RGB", target_size)
+
+            img = img.convert("RGB")
+
+            # After draft, the decoded image is >= target (for the ~6960px
+            # originals the decoder lands on a 1/4 subsample, ~1740px). Finish
+            # the downscale to METRICS_MAX_WIDTH with a cheap BILINEAR pass.
+            if img.width > METRICS_MAX_WIDTH:
+                scale = METRICS_MAX_WIDTH / img.width
+                resize_size = (METRICS_MAX_WIDTH, max(1, int(img.height * scale)))
+                img = img.resize(resize_size, RESAMPLING.BILINEAR)
+            else:
+                img = img.copy()
+
+            return img
+    except Exception:
+        return None
+
+
+# Per-image metric cache. The computed metrics (sharpness, detail, contrast,
+# brightness/exposure, pHash) are pure functions of the image pixels -- they do
+# not depend on the blur/duplicate/top-N sliders or scoring weights. So we cache
+# them keyed by (path, mtime). Tweaking a threshold and reprocessing then reuses
+# these and only re-runs the cheap filter/score/dedup steps instead of decoding
+# every JPEG again. mtime keying means a re-uploaded/overwritten file (new
+# mtime) misses the cache and is recomputed.
+_METRICS_CACHE: dict[tuple[str, float], dict] = {}
+_METRIC_FIELDS = (
+    "sharpness",
+    "detail_ratio",
+    "contrast",
+    "brightness_mean",
+    "exposure_balance",
+    "perceptual_hash",
+)
+
+
+def clear_metrics_cache() -> None:
+    _METRICS_CACHE.clear()
+
+
+def _metrics_cache_key(image_path: Path) -> tuple[str, float]:
+    try:
+        mtime = image_path.stat().st_mtime
+    except OSError:
+        mtime = -1.0
+    return (str(image_path), mtime)
+
+
+def compute_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate | None:
+    """Decode the image and compute its raw quality metrics (no caching)."""
     try:
         if not image_path.exists() and r2_key:
             download_file_from_r2(r2_key, image_path)
 
-        preview = load_analysis_preview(image_path)
+        preview = load_metrics_image(image_path)
         if preview is None:
             return None
 
@@ -1096,12 +1229,30 @@ def load_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate | N
         )
     except Exception:
         return None
-    finally:
-        del preview
-        del rgb_array
-        del gray
-        del edges
-        gc.collect()
+
+
+def load_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate | None:
+    """Return metrics for an image, using the (path, mtime) cache when warm.
+
+    A cache hit rebuilds a *fresh* PhotoCandidate from the cached raw metrics so
+    that per-run scoring state (score, breakdown, selection reason) never leaks
+    between runs.
+    """
+    # Make sure the file is local before we stat it for the cache key.
+    if not image_path.exists() and r2_key:
+        download_file_from_r2(r2_key, image_path)
+
+    key = _metrics_cache_key(image_path)
+    cached = _METRICS_CACHE.get(key)
+    if cached is not None:
+        return PhotoCandidate(path=image_path, r2_key=r2_key, **cached)
+
+    candidate = compute_image_metrics(image_path, r2_key=r2_key)
+    if candidate is not None:
+        _METRICS_CACHE[key] = {
+            field: getattr(candidate, field) for field in _METRIC_FIELDS
+        }
+    return candidate
 
 
 def normalize_metric(values: list[float]) -> list[float]:
@@ -1191,38 +1342,64 @@ def filter_blurry_images(
     r2_keys_by_name: dict[str, str],
     progress_bar=None,
     progress_text=None,
+    max_workers: int | None = None,
 ) -> tuple[list[PhotoCandidate], int, int]:
-    candidates: list[PhotoCandidate] = []
-    blurry_count = 0
-    unreadable_count = 0
     total_images = len(image_files)
+    if total_images == 0:
+        return [], 0, 0
+
+    if max_workers is None or max_workers <= 0:
+        max_workers = _default_worker_count()
+    # No point spinning up more threads than images.
+    max_workers = max(1, min(max_workers, total_images))
+
+    # Compute metrics in parallel. Per-image decode + cv2 work releases the GIL,
+    # so threads overlap well. Results are stored by original index so the
+    # downstream order is identical to the sequential version -- this keeps
+    # scoring/dedup tie-breaking (stable sort on file order) deterministic.
+    results: list[PhotoCandidate | None] = [None] * total_images
     processed_count = 0
 
-    for chunk in iter_chunks(image_files, PROCESSING_CHUNK_SIZE):
-        for image_path in chunk:
+    def analyze(index: int, image_path: Path):
+        return index, load_image_metrics(
+            image_path,
+            r2_key=r2_keys_by_name.get(image_path.name, ""),
+        )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(analyze, index, image_path)
+            for index, image_path in enumerate(image_files)
+        ]
+        # Progress reflects completion count; the main thread owns the Streamlit
+        # widgets, so updating them here (not inside workers) is safe.
+        for future in as_completed(futures):
+            index, candidate = future.result()
+            results[index] = candidate
             processed_count += 1
 
             if progress_text is not None:
-                progress_text.text(f"Analyzing image {processed_count} of {total_images}...")
-            if progress_bar is not None and total_images > 0:
+                progress_text.text(
+                    f"Analyzing image {processed_count} of {total_images}..."
+                )
+            if progress_bar is not None:
                 progress_bar.progress(processed_count / total_images)
 
-            candidate = load_image_metrics(
-                image_path,
-                r2_key=r2_keys_by_name.get(image_path.name, ""),
-            )
+    # Apply the blur/unreadable filter in deterministic file order.
+    candidates: list[PhotoCandidate] = []
+    blurry_count = 0
+    unreadable_count = 0
 
-            if candidate is None:
-                unreadable_count += 1
-                continue
+    for candidate in results:
+        if candidate is None:
+            unreadable_count += 1
+            continue
+        if candidate.sharpness < blur_threshold:
+            blurry_count += 1
+            continue
+        candidates.append(candidate)
 
-            if candidate.sharpness < blur_threshold:
-                blurry_count += 1
-                continue
-
-            candidates.append(candidate)
-
-        gc.collect()
+    gc.collect()
 
     return candidates, blurry_count, unreadable_count
 
@@ -1379,25 +1556,38 @@ def save_uploaded_files(uploaded_files: list, r2_prefix: str) -> dict[str, str]:
     clear_output_folder(CANVAS_DIR)
 
     r2_keys_by_name: dict[str, str] = {}
+    use_r2 = r2_enabled()
 
-    if r2_enabled():
+    if use_r2:
         previous_prefix = st.session_state.get("current_r2_prefix", "")
         if previous_prefix and previous_prefix != r2_prefix:
             cleanup_r2_prefix(previous_prefix)
+
+    upload_executor = _get_upload_executor() if use_r2 else None
+    upload_futures = []
 
     for uploaded_file in uploaded_files:
         file_name = Path(uploaded_file.name).name
         file_path = INPUT_DIR / file_name
 
+        # Save locally first -- this is the critical path: analysis reads these
+        # local files immediately after, so we never wait on the network here.
         with open(file_path, "wb") as file_handle:
             file_handle.write(uploaded_file.getbuffer())
 
-        if r2_enabled():
+        if use_r2:
+            # The R2 key is deterministic, so assign it now and push the actual
+            # upload onto the background pool. Downstream code only uses the key
+            # as a fallback to re-download a file that is missing locally, which
+            # can't happen until after cleanup (and we drain uploads first).
             r2_key = f"{r2_prefix}{file_name}"
-            if upload_file_to_r2(file_path, r2_key):
-                r2_keys_by_name[file_name] = r2_key
+            r2_keys_by_name[file_name] = r2_key
+            upload_futures.append(
+                upload_executor.submit(upload_file_to_r2, file_path, r2_key)
+            )
 
-        gc.collect()
+    if upload_futures:
+        _register_pending_uploads(upload_futures)
 
     return r2_keys_by_name
 
@@ -1770,7 +1960,7 @@ def main() -> None:
         render_landing_view()
         return
 
-    if st.button("← Back to Home"):
+    if st.button("‚Üê Back to Home"):
         st.session_state["view"] = "landing"
         st.rerun()
 
