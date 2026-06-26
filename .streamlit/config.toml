@@ -1,0 +1,14 @@
+# Streamlit server config — tuned for large photo-batch uploads.
+# Raise the upload caps well above the 200 MB default so full shoots don't
+# get rejected, and give the websocket room for big multi-file transfers.
+
+[server]
+# Max size (MB) of a single uploaded file (default 200).
+maxUploadSize = 2000
+
+# Max websocket message size (MB); keep in line with maxUploadSize so big
+# multi-file batches stream without hitting the socket ceiling (default 200).
+maxMessageSize = 2000
+
+[browser]
+gatherUsageStats = false
