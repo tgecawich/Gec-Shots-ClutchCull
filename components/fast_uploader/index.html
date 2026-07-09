@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #e8edf5;
+    background: transparent;
+  }
+  .drop-zone {
+    border: 2px dashed rgba(94, 234, 212, 0.45);
+    border-radius: 14px;
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    background: rgba(15, 23, 42, 0.35);
+  }
+  .drop-zone:hover, .drop-zone.dragover {
+    border-color: #5eead4;
+    background: rgba(94, 234, 212, 0.08);
+  }
+  .drop-zone h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .drop-zone p { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+  .hidden { display: none !important; }
+  .progress-wrap { margin-top: 14px; }
+  .progress-track {
+    height: 10px;
+    border-radius: 6px;
+    background: rgba(148, 163, 184, 0.25);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #14b8a6, #5eead4);
+    transition: width 0.2s ease;
+  }
+  .progress-label {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    opacity: 0.9;
+  }
+  .stats {
+    margin-top: 10px;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+  .done-banner {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(20, 184, 166, 0.14);
+    border: 1px solid rgba(94, 234, 212, 0.4);
+    font-size: 0.9rem;
+  }
+  .error-note { color: #fca5a5; font-size: 0.8rem; margin-top: 6px; }
+  .reset-link {
+    margin-top: 10px;
+    display: inline-block;
+    font-size: 0.8rem;
+    color: #5eead4;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+  <div id="dropZone" class="drop-zone">
+    <h3>Drop your shoot here</h3>
+    <p>Photos are optimized in your browser and uploaded in parallel &mdash; up to 50&times; faster.
+       Your full-resolution originals never leave your computer.</p>
+    <input id="fileInput" type="file" class="hidden" multiple
+           accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" />
+  </div>
+
+  <div id="progressWrap" class="progress-wrap hidden">
+    <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+    <div class="progress-label">
+      <span id="progressText">Preparing&hellip;</span>
+      <span id="progressCount"></span>
+    </div>
+    <div id="statsLine" class="stats"></div>
+    <div id="errorNote" class="error-note hidden"></div>
+  </div>
+
+  <div id="doneBanner" class="done-banner hidden"></div>
+  <span id="resetLink" class="reset-link hidden">Upload a different batch</span>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- Streamlit component protocol (hand-rolled, no build step) ----------
+  function sendMessage(type, data) {
+    window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data), "*");
+  }
+  function setComponentValue(value) {
+    sendMessage("streamlit:setComponentValue", { dataType: "json", value: value });
+  }
+  function setFrameHeight() {
+    sendMessage("streamlit:setFrameHeight", { height: document.body.scrollHeight + 16 });
+  }
+
+  // ---- State ---------------------------------------------------------------
+  var selectedFiles = [];          // File objects held in memory across reruns
+  var currentNonce = null;         // identifies the active selection
+  var uploadStartedForNonce = null;
+  var uploadDoneForNonce = null;
+
+  var MAX_DIM = 1800;
+  var JPEG_QUALITY = 0.82;
+  var CONCURRENCY = 5;
+
+  var dropZone = document.getElementById("dropZone");
+  var fileInput = document.getElementById("fileInput");
+  var progressWrap = document.getElementById("progressWrap");
+  var progressFill = document.getElementById("progressFill");
+  var progressText = document.getElementById("progressText");
+  var progressCount = document.getElementById("progressCount");
+  var statsLine = document.getElementById("statsLine");
+  var errorNote = document.getElementById("errorNote");
+  var doneBanner = document.getElementById("doneBanner");
+  var resetLink = document.getElementById("resetLink");
+
+  // ---- File selection --------------------------------------------------------
+  dropZone.addEventListener("click", function () { fileInput.click(); });
+  dropZone.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+  dropZone.addEventListener("dragleave", function () { dropZone.classList.remove("dragover"); });
+  dropZone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener("change", function () { handleFiles(fileInput.files); });
+  resetLink.addEventListener("click", function () { resetUI(); fileInput.click(); });
+
+  var VALID_EXT = /\.(jpe?g|png|webp)$/i;
+
+  function handleFiles(fileList) {
+    var files = Array.prototype.filter.call(fileList, function (f) {
+      return VALID_EXT.test(f.name);
+    });
+    if (!files.length) return;
+
+    // Dedupe by name -- server keys are name-based, keep the last occurrence.
+    var byName = {};
+    files.forEach(function (f) { byName[f.name] = f; });
+    selectedFiles = Object.keys(byName).map(function (k) { return byName[k]; });
+
+    currentNonce = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+    uploadStartedForNonce = null;
+    uploadDoneForNonce = null;
+
+    doneBanner.classList.add("hidden");
+    resetLink.classList.add("hidden");
+    errorNote.classList.add("hidden");
+    progressWrap.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    progressText.textContent = "Requesting upload links…";
+    progressCount.textContent = selectedFiles.length + " files";
+    statsLine.textContent = "";
+    setFrameHeight();
+
+    // Phase 1: ask Python for presigned URLs for these filenames.
+    setComponentValue({
+      phase: "need_urls",
+      nonce: currentNonce,
+      files: selectedFiles.map(function (f) { return f.name; })
+    });
+  }
+
+  function resetUI() {
+    selectedFiles = [];
+    currentNonce = null;
+    uploadStartedForNonce = null;
+    uploadDoneForNonce = null;
+    fileInput.value = "";
+    progressWrap.classList.add("hidden");
+    doneBanner.classList.add("hidden");
+    resetLink.classList.add("hidden");
+    setFrameHeight();
+  }
+
+  // ---- Resize --------------------------------------------------------------
+  function resizeFile(file) {
+    // Returns a Promise<Blob>. Falls back to the original bytes when the
+    // browser can't decode the file (analysis still works server-side).
+    return createImageBitmap(file, { imageOrientation: "from-image" })
+      .catch(function () { return createImageBitmap(file); }) // Safari <17 lacks the option
+      .then(function (bitmap) {
+        var scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+        // Already small enough and already a JPEG? Ship it untouched.
+        if (scale >= 1 && /jpe?g/i.test(file.type) && file.size < 2 * 1024 * 1024) {
+          bitmap.close();
+          return file;
+        }
+        var w = Math.max(1, Math.round(bitmap.width * scale));
+        var h = Math.max(1, Math.round(bitmap.height * scale));
+        var canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext("2d");
+        // White background so transparent PNGs flatten cleanly to JPEG.
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        bitmap.close();
+        return new Promise(function (resolve, reject) {
+          canvas.toBlob(function (blob) {
+            if (blob) resolve(blob);
+            else reject(new Error("toBlob failed"));
+          }, "image/jpeg", JPEG_QUALITY);
+        });
+      })
+      .catch(function () { return file; });
+  }
+
+  function putWithRetry(url, blob, attempt) {
+    return fetch(url, { method: "PUT", body: blob }).then(function (resp) {
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      return true;
+    }).catch(function (err) {
+      if (attempt < 2) return putWithRetry(url, blob, attempt + 1);
+      throw err;
+    });
+  }
+
+  // ---- Upload orchestration ----------------------------------------------
+  function startUpload(urls, nonce) {
+    uploadStartedForNonce = nonce;
+
+    var total = selectedFiles.length;
+    var completed = 0;
+    var uploaded = [];
+    var failed = [];
+    var originalBytes = 0;
+    var sentBytes = 0;
+    var queue = selectedFiles.slice();
+
+    progressText.textContent = "Optimizing + uploading…";
+
+    function updateProgress() {
+      completed += 1;
+      var pct = Math.round((completed / total) * 100);
+      progressFill.style.width = pct + "%";
+      progressCount.textContent = completed + " / " + total;
+      if (sentBytes > 0 && originalBytes > 0) {
+        var savedPct = Math.max(0, Math.round(100 - (sentBytes / originalBytes) * 100));
+        statsLine.textContent =
+          (originalBytes / 1048576).toFixed(0) + " MB shrunk to " +
+          (sentBytes / 1048576).toFixed(1) + " MB (" + savedPct + "% less data)";
+      }
+    }
+
+    function worker() {
+      var file = queue.shift();
+      if (!file) return Promise.resolve();
+      var url = urls[file.name];
+      var task;
+      if (!url) {
+        failed.push(file.name);
+        updateProgress();
+        task = Promise.resolve();
+      } else {
+        task = resizeFile(file).then(function (blob) {
+          return putWithRetry(url, blob, 0).then(function () {
+            uploaded.push(file.name);
+            originalBytes += file.size;
+            sentBytes += blob.size;
+          });
+        }).catch(function () {
+          failed.push(file.name);
+        }).then(updateProgress);
+      }
+      return task.then(worker);
+    }
+
+    var workers = [];
+    for (var i = 0; i < Math.min(CONCURRENCY, total); i++) workers.push(worker());
+
+    Promise.all(workers).then(function () {
+      uploadDoneForNonce = nonce;
+      progressText.textContent = "Upload complete";
+      progressFill.style.width = "100%";
+
+      var savedPct = originalBytes > 0
+        ? Math.max(0, Math.round(100 - (sentBytes / originalBytes) * 100))
+        : 0;
+      doneBanner.textContent =
+        "✓ " + uploaded.length + " photos uploaded — " +
+        (originalBytes / 1048576).toFixed(0) + " MB optimized down to " +
+        (sentBytes / 1048576).toFixed(1) + " MB (" + savedPct + "% smaller).";
+      doneBanner.classList.remove("hidden");
+      resetLink.classList.remove("hidden");
+
+      if (failed.length) {
+        errorNote.textContent = failed.length + " file(s) failed to upload: " +
+          failed.slice(0, 5).join(", ") + (failed.length > 5 ? "…" : "");
+        errorNote.classList.remove("hidden");
+      }
+      setFrameHeight();
+
+      // Phase 2: report completion back to Python.
+      setComponentValue({
+        phase: "done",
+        nonce: nonce,
+        uploaded: uploaded,
+        failed: failed,
+        original_bytes: originalBytes,
+        sent_bytes: sentBytes
+      });
+    });
+  }
+
+  // ---- Render events from Streamlit ---------------------------------------
+  window.addEventListener("message", function (event) {
+    var msg = event.data;
+    if (!msg || msg.type !== "streamlit:render") return;
+
+    var args = (msg.args !== undefined ? msg.args : (msg.data && msg.data.args)) || {};
+    if (typeof args.max_dim === "number" && args.max_dim > 0) MAX_DIM = args.max_dim;
+    if (typeof args.quality === "number" && args.quality > 0) JPEG_QUALITY = args.quality;
+
+    var urls = args.urls;
+    var urlsNonce = args.urls_nonce;
+
+    // Python answered our URL request for the batch we're holding -- upload it.
+    if (
+      urls && urlsNonce &&
+      urlsNonce === currentNonce &&
+      uploadStartedForNonce !== urlsNonce &&
+      uploadDoneForNonce !== urlsNonce &&
+      selectedFiles.length
+    ) {
+      startUpload(urls, urlsNonce);
+    }
+    setFrameHeight();
+  });
+
+  sendMessage("streamlit:componentReady", { apiVersion: 1 });
+  setFrameHeight();
+})();
+</script>
+</body>
+</html>
