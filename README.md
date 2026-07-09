@@ -2,7 +2,7 @@
 title: ClutchCull
 emoji: 📸
 colorFrom: purple
-colorTo: orange
+colorTo: red
 sdk: streamlit
 sdk_version: 1.57.0
 app_file: app.py
