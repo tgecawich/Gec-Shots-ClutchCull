@@ -1,0 +1,35 @@
+name: Deploy to Hugging Face Space
+
+# Every push to main is mirrored to the ClutchCull Hugging Face Space, so the
+# live app always matches this repo. No manual token pushes needed.
+#
+# One-time setup: add a repository secret named HF_TOKEN
+#   GitHub repo -> Settings -> Secrets and variables -> Actions -> New
+#   repository secret -> Name: HF_TOKEN, Value: a Hugging Face *write* token.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN secret is not set. Add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          git push --force \
+            "https://GecCreator:${HF_TOKEN}@huggingface.co/spaces/GecCreator/clutchcull" \
+            HEAD:main
