@@ -369,30 +369,30 @@ def inject_custom_css() -> None:
         }
 
         .clutch-metric-card {
-            min-height: 116px;
+            min-height: 84px;
             border: 1px solid rgba(255, 255, 255, 0.13);
-            border-radius: 20px;
-            padding: 1rem;
+            border-radius: 16px;
+            padding: 0.75rem 0.85rem;
             background:
                 radial-gradient(circle at 90% 10%, rgba(255, 138, 42, 0.20), transparent 45%),
                 linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
-            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.20);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
         }
 
         .clutch-metric-label {
             color: var(--clutch-muted);
-            font-size: 0.76rem;
+            font-size: 0.68rem;
             font-weight: 850;
-            letter-spacing: 0.095em;
+            letter-spacing: 0.09em;
             text-transform: uppercase;
         }
 
         .clutch-metric-value {
-            margin-top: 0.45rem;
+            margin-top: 0.3rem;
             color: var(--clutch-text);
-            font-size: clamp(1.55rem, 4vw, 2.3rem);
+            font-size: clamp(1.25rem, 3.2vw, 1.85rem);
             font-weight: 950;
-            letter-spacing: -0.055em;
+            letter-spacing: -0.05em;
         }
 
         .clutch-note {
@@ -2404,8 +2404,7 @@ def render_cull_workspace(email: str) -> None:
         st.session_state["view"] = "choose"
         st.rerun()
 
-    render_workspace_proof_text()
-    render_hero()
+    render_compact_brand()
     render_live_stats()
 
     st.sidebar.markdown("## ClutchCull Control Room")
@@ -2421,7 +2420,7 @@ def render_cull_workspace(email: str) -> None:
         "Blur Threshold",
         0.0,
         100.0,
-        12.0,
+        40.0,
         1.0,
         help="Higher values are stricter and remove more soft images.",
     )
@@ -2443,9 +2442,9 @@ def render_cull_workspace(email: str) -> None:
     )
     seconds_per_photo = st.sidebar.slider(
         "Manual review seconds per photo",
-        2,
+        0,
+        20,
         15,
-        6,
         1,
         help="Used only for the estimated time-saved impact metric.",
     )
@@ -2808,11 +2807,13 @@ def render_canvas_workspace(email: str) -> None:
     padding = st.sidebar.slider(
         "White border (padding)",
         0,
-        300,
-        80,
+        100,
+        20,
         5,
-        help="Pixels of white space around each photo.",
+        help="How much white space to leave around each photo. "
+        "Gec Shots recommends 20.",
     )
+    st.sidebar.caption("✨ Gec Shots recommends a padding of 20.")
 
     if r2_enabled():
         st.sidebar.success("Cloudflare R2 storage enabled.")
