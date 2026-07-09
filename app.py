@@ -762,6 +762,34 @@ def render_hide_sidebar_css() -> None:
     )
 
 
+def render_pinned_sidebar_css() -> None:
+    """Keep the settings sidebar always visible on the workspace -- it can't be
+    collapsed behind the arrow, so the controls are never hidden.
+    """
+    st.markdown(
+        """
+        <style>
+        /* Force the sidebar open and visible (overrides a collapsed state). */
+        [data-testid="stSidebar"] {
+            transform: none !important;
+            visibility: visible !important;
+            min-width: 300px !important;
+            width: 300px !important;
+            margin-left: 0 !important;
+        }
+        /* Remove every collapse/expand arrow so it stays pinned open. */
+        [data-testid="stSidebarCollapseButton"],
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="collapsedControl"],
+        button[kind="header"][aria-label*="sidebar"] {
+            display: none !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def get_live_stats_snapshot() -> tuple[int, int, int, float] | None:
     try:
         sessions, photos, exports, hours = load_live_stats()
@@ -2507,6 +2535,7 @@ def render_cull_workspace(email: str) -> None:
         st.session_state["view"] = "choose"
         st.rerun()
 
+    render_pinned_sidebar_css()
     render_compact_brand()
     log_session_start_once(email)
 
@@ -2893,6 +2922,7 @@ def render_canvas_workspace(email: str) -> None:
         st.session_state["view"] = "choose"
         st.rerun()
 
+    render_pinned_sidebar_css()
     render_compact_brand()
     log_session_start_once(email)
 
