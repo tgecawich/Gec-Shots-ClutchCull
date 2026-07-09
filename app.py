@@ -2,6 +2,7 @@ import gc
 import os
 import shutil
 import threading
+import time
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,7 +15,7 @@ import imagehash
 import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 try:
     import boto3
@@ -121,6 +122,13 @@ CANVAS_RATIOS = {
 # size). Keeps the photo near its native resolution for crisp downsampling
 # while keeping file sizes reasonable. See create_white_canvas().
 CANVAS_MAX_LONG_EDGE = 2880
+
+# Shareable "Cull Report" card. Portrait 4:5 (best IG post), rendered at 2x
+# for crisp text. Gec Shots' handle credits shares back to the creator.
+GEC_HANDLE = "@gec.shots"
+REPORT_BASE_W = 1080
+REPORT_BASE_H = 1350
+REPORT_SUPERSAMPLE = 2
 
 
 @dataclass
@@ -1859,6 +1867,176 @@ def create_white_canvas(
         )
 
 
+# ---------------------------------------------------------------------------
+# Shareable "Cull Report" card -- a branded, Instagram-ready graphic that
+# summarizes a cull ("428 -> 35, 1.8 hrs saved") with a strip of the top
+# keepers. It's a growth loop: photographers post it, their peers discover
+# ClutchCull. Rendered with Pillow (already a dependency); fonts fall back
+# across Linux (HF Space) and macOS so it works everywhere.
+# ---------------------------------------------------------------------------
+
+_REPORT_BG = (9, 7, 19)
+_REPORT_WHITE = (248, 244, 255)
+_REPORT_MUTED = (183, 170, 203)
+_REPORT_ORANGE = (255, 138, 42)
+_REPORT_PINK = (255, 78, 205)
+_REPORT_GOLD = (255, 193, 90)
+_REPORT_PURPLE = (123, 60, 255)
+
+
+def _report_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        if bold
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+        if bold
+        else "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+    ]
+    for name in candidates:
+        try:
+            return ImageFont.truetype(name, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _report_glow(base, cx, cy, rad, color, strength, blur):
+    w, h = base.size
+    scale = 4
+    mask = Image.new("L", (w // scale, h // scale), 0)
+    ImageDraw.Draw(mask).ellipse(
+        [(cx - rad) // scale, (cy - rad) // scale, (cx + rad) // scale, (cy + rad) // scale],
+        fill=strength,
+    )
+    mask = mask.filter(ImageFilter.GaussianBlur(blur // scale)).resize((w, h))
+    return Image.composite(Image.new("RGB", (w, h), color), base, mask)
+
+
+def _report_gradient_word(base, draw, x, y, text, font, c1, c2):
+    w, h = base.size
+    layer = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(layer).text((x, y), text, font=font, fill=255)
+    word_w = draw.textlength(text, font=font)
+    grad = Image.new("RGB", (w, h))
+    gd = ImageDraw.Draw(grad)
+    for col in range(int(x), min(w, int(x + word_w) + 1)):
+        t = min(1.0, max(0.0, (col - x) / max(1.0, word_w)))
+        gd.line(
+            [(col, 0), (col, h)],
+            fill=(
+                int(c1[0] * (1 - t) + c2[0] * t),
+                int(c1[1] * (1 - t) + c2[1] * t),
+                int(c1[2] * (1 - t) + c2[2] * t),
+            ),
+        )
+    base.paste(grad, (0, 0), layer)
+
+
+def _report_thumb(image_path: Path, size: tuple[int, int]):
+    try:
+        with Image.open(image_path) as raw:
+            img = ImageOps.exif_transpose(raw).convert("RGB")
+        img = ImageOps.fit(img, size, RESAMPLING.LANCZOS)
+        mask = Image.new("L", size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            [0, 0, size[0], size[1]], radius=int(size[0] * 0.08), fill=255
+        )
+        return img, mask
+    except Exception:
+        return None, None
+
+
+def build_cull_report(
+    shots_in: int,
+    keepers: int,
+    hours_saved: float,
+    filtered: int,
+    elapsed_seconds: float,
+    keeper_paths: list[Path],
+    output_path: Path = Path("cull_report.png"),
+) -> Path:
+    S = REPORT_SUPERSAMPLE
+    W, H = REPORT_BASE_W * S, REPORT_BASE_H * S
+
+    img = Image.new("RGB", (W, H), _REPORT_BG)
+    img = _report_glow(img, int(0.26 * W), int(0.14 * H), int(0.62 * W), _REPORT_PURPLE, 125, int(0.22 * W))
+    img = _report_glow(img, int(0.84 * W), int(0.92 * H), int(0.58 * W), _REPORT_ORANGE, 115, int(0.22 * W))
+    img = _report_glow(img, int(0.92 * W), int(0.16 * H), int(0.30 * W), _REPORT_PINK, 55, int(0.18 * W))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([26 * S, 26 * S, W - 26 * S, H - 26 * S], radius=40 * S,
+                        outline=(255, 255, 255), width=2)
+
+    def center(y, text, font, fill):
+        w = d.textlength(text, font=font)
+        d.text(((W - w) / 2, y), text, font=font, fill=fill)
+
+    def spaced(y, text, font, fill, sp):
+        total = sum(d.textlength(c, font=font) + sp for c in text) - sp
+        x = (W - total) / 2
+        for c in text:
+            d.text((x, y), c, font=font, fill=fill)
+            x += d.textlength(c, font=font) + sp
+
+    # Wordmark: Clutch (white) + Cull (orange -> pink)
+    fw = _report_font(88 * S)
+    wc = d.textlength("Clutch", font=fw)
+    wu = d.textlength("Cull", font=fw)
+    x0 = (W - (wc + wu)) / 2
+    d.text((x0, 84 * S), "Clutch", font=fw, fill=_REPORT_WHITE)
+    _report_gradient_word(img, d, x0 + wc, 84 * S, "Cull", fw, _REPORT_ORANGE, _REPORT_PINK)
+    d = ImageDraw.Draw(img)
+    center(206 * S, f"made by {GEC_HANDLE}", _report_font(34 * S), _REPORT_GOLD)
+
+    # Hero transform: shots -> keepers
+    fbig = _report_font(150 * S)
+    farrow = _report_font(104 * S)
+    a, b, gap = f"{shots_in:,}", f"{keepers:,}", 60 * S
+    wa = d.textlength(a, font=fbig)
+    war = d.textlength("→", font=farrow)
+    wb = d.textlength(b, font=fbig)
+    gx = (W - (wa + gap + war + gap + wb)) / 2
+    gy = 328 * S
+    d.text((gx, gy), a, font=fbig, fill=_REPORT_WHITE)
+    d.text((gx + wa + gap, gy + 26 * S), "→", font=farrow, fill=_REPORT_MUTED)
+    _report_gradient_word(img, d, gx + wa + gap + war + gap, gy, b, fbig, _REPORT_ORANGE, _REPORT_PINK)
+    d = ImageDraw.Draw(img)
+    fl = _report_font(32 * S)
+    d.text((gx + (wa - d.textlength("SHOTS", font=fl)) / 2, gy + 172 * S), "SHOTS", font=fl, fill=_REPORT_MUTED)
+    kx = gx + wa + gap + war + gap
+    d.text((kx + (wb - d.textlength("KEEPERS", font=fl)) / 2, gy + 172 * S), "KEEPERS", font=fl, fill=_REPORT_ORANGE)
+
+    # Stat lines
+    center(628 * S, f"{hours_saved:.1f} hours saved", _report_font(44 * S), _REPORT_WHITE)
+    center(696 * S, f"{filtered:,} blurry & duplicates filtered", _report_font(36 * S), _REPORT_MUTED)
+    elapsed = max(0, int(round(elapsed_seconds)))
+    center(760 * S, f"culled in {elapsed // 60}:{elapsed % 60:02d}", _report_font(44 * S), _REPORT_WHITE)
+
+    # Keeper thumbnail strip
+    thumbs = [p for p in keeper_paths[:3] if p is not None]
+    if thumbs:
+        spaced(862 * S, "TOP KEEPERS", _report_font(28 * S), _REPORT_MUTED, 6 * S)
+        margin, gap_t = 80 * S, 28 * S
+        count = len(thumbs)
+        cell_w = int((W - 2 * margin - (count - 1) * gap_t) / count)
+        cell_h = int(cell_w * 1.12)
+        ty = 918 * S
+        tx = margin
+        for path in thumbs:
+            thumb, mask = _report_thumb(path, (cell_w, cell_h))
+            if thumb is not None:
+                img.paste(thumb, (int(tx), int(ty)), mask)
+            tx += cell_w + gap_t
+        d = ImageDraw.Draw(img)
+
+    center((REPORT_BASE_H - 66) * S, "made with ClutchCull", _report_font(26 * S), _REPORT_MUTED)
+
+    img.save(output_path, quality=95)
+    return output_path
+
+
 def ensure_candidate_local_file(candidate: PhotoCandidate) -> bool:
     if candidate.path.exists():
         return True
@@ -2503,6 +2681,63 @@ def render_mode_choice() -> None:
         st.rerun()
 
 
+def render_cull_report_section(results: dict, seconds_per_photo: int) -> None:
+    """Show the shareable Cull Report card with a Download button.
+
+    Generated once per batch and cached in session_state so it isn't rebuilt
+    on every rerun (e.g. when the user toggles a keeper checkbox).
+    """
+    batch_id = st.session_state.get("current_batch_id")
+    cache = st.session_state.get("cull_report_cache") or {}
+    report_path = cache.get("path")
+
+    needs_build = (
+        cache.get("batch_id") != batch_id
+        or not report_path
+        or not Path(report_path).exists()
+    )
+    if needs_build:
+        keeper_paths = [
+            candidate.path for candidate in results.get("selected_candidates", [])[:3]
+        ]
+        hours_saved = calculate_minutes_saved(
+            st.session_state.get("last_photos_processed", results["total"]),
+            seconds_per_photo,
+        ) / 60.0
+        try:
+            path = build_cull_report(
+                shots_in=results["total"],
+                keepers=results["selected"],
+                hours_saved=hours_saved,
+                filtered=results["blurry_removed"] + results["duplicates_removed"],
+                elapsed_seconds=results.get("elapsed_seconds", 0.0),
+                keeper_paths=keeper_paths,
+            )
+        except Exception:
+            return
+        cache = {"batch_id": batch_id, "path": str(path)}
+        st.session_state.cull_report_cache = cache
+        report_path = cache["path"]
+
+    render_section_header(
+        "Share",
+        "Show off your cull",
+        "Post this to your story — every share sends more photographers to ClutchCull.",
+    )
+    columns = st.columns([1, 2, 1])
+    with columns[1]:
+        st.image(report_path, use_container_width=True)
+        with open(report_path, "rb") as handle:
+            st.download_button(
+                "📸 Download shareable card",
+                data=handle.read(),
+                file_name="clutchcull_cull_report.png",
+                mime="image/png",
+                type="primary",
+                use_container_width=True,
+            )
+
+
 def render_impact_email_capture() -> None:
     """Optional, post-export email ask. Shown only after the user has a result,
     so we never gate value behind an email. Purely for the impact dashboard.
@@ -2673,6 +2908,7 @@ def render_cull_workspace(email: str) -> None:
                 r2_keys_by_name = fetch_previews_from_r2(uploaded_names, r2_prefix)
             else:
                 r2_keys_by_name = save_uploaded_files(uploaded_files, r2_prefix)
+            cull_start = time.time()
             results = process_images(
                 blur_threshold=blur_threshold,
                 duplicate_threshold=duplicate_threshold,
@@ -2683,6 +2919,7 @@ def render_cull_workspace(email: str) -> None:
                 progress_bar=progress_bar,
                 progress_text=progress_text,
             )
+            results["elapsed_seconds"] = time.time() - cull_start
 
         st.session_state.cull_results = results
         st.session_state.last_photos_processed = results["total"]
@@ -2711,6 +2948,7 @@ def render_cull_workspace(email: str) -> None:
 
     st.success("Processing complete. Your shortlist is ready for review.")
     render_summary(results)
+    render_cull_report_section(results, seconds_per_photo)
 
     duplicate_groups = results.get("duplicate_groups", [])
     effective_candidates = apply_similar_photo_swaps(
