@@ -14,7 +14,7 @@ import imagehash
 import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     import boto3
@@ -626,6 +626,54 @@ def inject_custom_css() -> None:
         unsafe_allow_html=True,
     )
 
+    # Bigger, clearer buttons and controls across the whole app.
+    st.markdown(
+        """
+        <style>
+        /* Every button (actions + downloads): larger, bolder, easier to tap. */
+        .stButton > button,
+        .stDownloadButton > button {
+            font-size: 1.2rem !important;
+            font-weight: 700 !important;
+            padding: 0.95rem 1.6rem !important;
+            min-height: 3.3rem !important;
+            border-radius: 16px !important;
+            letter-spacing: 0.01em;
+            line-height: 1.25 !important;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+        }
+        /* Control labels: larger and higher-contrast so they're easy to read. */
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] label {
+            font-size: 1.08rem !important;
+            font-weight: 600 !important;
+        }
+        /* Inputs and dropdowns: bigger text. */
+        .stTextInput input,
+        .stSelectbox div[data-baseweb="select"] > div {
+            font-size: 1.08rem !important;
+            min-height: 3rem !important;
+        }
+        /* Sidebar headings + captions: a touch larger. */
+        [data-testid="stSidebar"] h2 {
+            font-size: 1.45rem !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+            font-size: 0.98rem !important;
+        }
+        /* Section descriptions: more readable body size. */
+        .clutch-section p {
+            font-size: 1.08rem;
+            line-height: 1.6;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_hero() -> None:
     st.markdown(
@@ -1091,13 +1139,17 @@ def fetch_previews_from_r2(file_names: list[str], r2_prefix: str) -> dict[str, s
     return r2_keys_by_name
 
 
-def render_fast_uploader() -> dict | None:
+def render_fast_uploader(raw_upload: bool = False) -> dict | None:
     """Render the JS uploader and drive the presigned-URL handshakes.
 
     Handles two browser->server exchanges through the one component instance:
       - preview upload: browser resizes + PUTs previews, reports phase "done".
       - full-res keeper upload (at export time): browser PUTs the untouched
         originals of just the selected keepers, reports phase "fullres_done".
+
+    When ``raw_upload`` is True the initial upload skips in-browser resizing
+    and PUTs the untouched originals -- used by the canvas tool so exports are
+    built from full-resolution, uncompressed source images.
 
     Returns the persisted preview-upload payload for the current batch (so the
     caller can proceed to analysis), or None until that first upload lands.
@@ -1115,6 +1167,7 @@ def render_fast_uploader() -> dict | None:
         fullres=state.get("fullres_request"),
         max_dim=PREVIEW_MAX_DIMENSION,
         quality=PREVIEW_JPEG_QUALITY,
+        raw_upload=raw_upload,
         key="fast_uploader",
         default=None,
     )
@@ -1696,10 +1749,13 @@ def create_white_canvas(
     padding: int,
 ) -> None:
     with Image.open(image_path) as img:
-        img = img.convert("RGB")
+        # Respect embedded EXIF orientation so portraits aren't rotated wrong.
+        img = ImageOps.exif_transpose(img).convert("RGB")
 
         max_width = canvas_width - (2 * padding)
         max_height = canvas_height - (2 * padding)
+        # Downscale from the full-resolution source with LANCZOS for the
+        # sharpest fit; never upscale past the source (avoids softening).
         img.thumbnail((max_width, max_height), RESAMPLING.LANCZOS)
 
         canvas = Image.new("RGB", (canvas_width, canvas_height), "white")
@@ -1707,7 +1763,14 @@ def create_white_canvas(
         y = (canvas_height - img.height) // 2
 
         canvas.paste(img, (x, y))
-        canvas.save(output_path, quality=95)
+        # Max-quality JPEG: quality 98, no chroma subsampling (4:4:4), and
+        # keep 4:4:4 so fine edges/text stay crisp for Instagram.
+        canvas.save(
+            output_path,
+            quality=98,
+            subsampling=0,
+            optimize=True,
+        )
 
 
 def ensure_candidate_local_file(candidate: PhotoCandidate) -> bool:
@@ -2735,7 +2798,9 @@ def render_canvas_workspace(email: str) -> None:
     upload_card = st.container(border=True)
     with upload_card:
         if use_fast_uploader:
-            fast_upload_result = render_fast_uploader()
+            # raw_upload: send full-resolution originals so canvases are built
+            # from uncompressed source, not the 1800px analysis preview.
+            fast_upload_result = render_fast_uploader(raw_upload=True)
         else:
             st.markdown(
                 """
