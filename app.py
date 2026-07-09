@@ -109,6 +109,14 @@ SCORING_PRESETS = {
     },
 }
 
+# Instagram-ready canvas sizes -> (width, height) in pixels. Order matters:
+# the first entry is the default (3:4, the strongest single-image IG post size).
+CANVAS_RATIOS = {
+    "3:4 — 1080 × 1440 (best for IG posts)": (1080, 1440),
+    "4:5 — 1080 × 1350": (1080, 1350),
+    "1:1 — 1080 × 1080 (square)": (1080, 1080),
+}
+
 
 @dataclass
 class CanvasSettings:
@@ -720,7 +728,7 @@ def render_workspace_proof_text() -> None:
     st.markdown(
         f"""
         <div class="clutch-proof-strip">
-            Live proof: {sessions:,} sessions ‚Ä¢ {photos:,} photos processed ‚Ä¢ {exports:,} exports
+            Live proof: {sessions:,} sessions • {photos:,} photos processed • {exports:,} exports
         </div>
         """,
         unsafe_allow_html=True,
@@ -734,7 +742,7 @@ def render_built_from_sideline_card() -> None:
             <h3>Built from the sideline</h3>
             <p>
                 ClutchCull started inside the Gec Shots workflow: football, basketball, baseball,
-                hockey, and event galleries with hundreds of frames per shoot. The goal is simple ‚Äî
+                hockey, and event galleries with hundreds of frames per shoot. The goal is simple —
                 cut the sorting time, keep the strongest images, and get photographers to the edit faster.
             </p>
         </div>
@@ -2181,8 +2189,8 @@ def render_landing_view() -> None:
     render_landing_hero()
     render_live_stats()
 
-    if st.button("Start Sorting", type="primary"):
-        st.session_state["view"] = "workspace"
+    if st.button("Get Started", type="primary"):
+        st.session_state["view"] = "email"
         st.rerun()
 
     render_section_header(
@@ -2194,21 +2202,104 @@ def render_landing_view() -> None:
     render_how_it_works()
 
 
-def main() -> None:
-    ensure_directories()
+def render_compact_brand() -> None:
+    st.markdown(
+        '<div class="clutch-logo" style="text-align:center;margin:0.5rem 0 0.25rem;">'
+        'Clutch<span>Cull</span></div>'
+        '<div class="clutch-byline" style="text-align:center;">by Gec Shots</div>',
+        unsafe_allow_html=True,
+    )
 
-    st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
-    inject_custom_css()
 
-    if "view" not in st.session_state:
+def render_email_gate() -> None:
+    render_hide_sidebar_css()
+    render_compact_brand()
+    render_live_stats()
+    render_section_header(
+        "Welcome",
+        "Enter your email to continue",
+        "Used only to power the usage & impact dashboard above — nothing else. "
+        "No spam, never shared, and never used for anything but tracking overall impact.",
+    )
+
+    with st.container(border=True):
+        email_input = st.text_input(
+            "Email",
+            value=st.session_state.get("user_email", ""),
+            placeholder="you@example.com",
+        )
+        continue_col, skip_col = st.columns([2, 1])
+        with continue_col:
+            if st.button("Continue", type="primary", use_container_width=True):
+                st.session_state.user_email = normalize_email(email_input)
+                log_session_start_once(st.session_state.user_email)
+                st.session_state["view"] = "choose"
+                st.rerun()
+        with skip_col:
+            if st.button("Skip for now", use_container_width=True):
+                st.session_state.user_email = ""
+                log_session_start_once("")
+                st.session_state["view"] = "choose"
+                st.rerun()
+
+    if st.button("← Back to home"):
         st.session_state["view"] = "landing"
+        st.rerun()
 
-    if st.session_state["view"] == "landing":
-        render_landing_view()
-        return
 
-    if st.button("‚Üê Back to Home"):
-        st.session_state["view"] = "landing"
+def render_mode_choice() -> None:
+    render_hide_sidebar_css()
+    render_compact_brand()
+    render_section_header(
+        "Choose your tool",
+        "What would you like to do?",
+        "Two tools in one workspace: cull a shoot down to its keepers, or turn photos "
+        "into Instagram-ready canvas posts.",
+    )
+
+    cull_col, canvas_col = st.columns(2)
+    with cull_col:
+        st.markdown(
+            """
+            <div class="clutch-upload-card">
+                <h3 class="clutch-upload-title">🏟️ Cull my photos</h3>
+                <p class="clutch-upload-copy">
+                    Upload a full shoot and let ClutchCull remove blurry frames and
+                    near-duplicates, then rank the strongest shots into a keeper shortlist.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Start culling", type="primary", use_container_width=True):
+            st.session_state["view"] = "cull"
+            st.rerun()
+
+    with canvas_col:
+        st.markdown(
+            """
+            <div class="clutch-upload-card">
+                <h3 class="clutch-upload-title">📱 Instagram canvas posts</h3>
+                <p class="clutch-upload-copy">
+                    Drop in your picks and get clean, ready-to-post versions centered on a
+                    white canvas — 3:4, 4:5, or 1:1, sized exactly for Instagram.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Create canvas posts", type="primary", use_container_width=True):
+            st.session_state["view"] = "canvas"
+            st.rerun()
+
+    if st.button("← Back"):
+        st.session_state["view"] = "email"
+        st.rerun()
+
+
+def render_cull_workspace(email: str) -> None:
+    if st.button("← Back to tools"):
+        st.session_state["view"] = "choose"
         st.rerun()
 
     render_workspace_proof_text()
@@ -2260,21 +2351,14 @@ def main() -> None:
     st.sidebar.caption(
         "Tip: for sports bursts, keep duplicate removal moderate so you can compare key moments."
     )
-
-    st.sidebar.markdown("### Canvas Exports")
-    st.sidebar.caption("Optional white-canvas versions for social posting. Default is off for faster exports.")
-    create_canvas_exports = st.sidebar.checkbox(
-        "Create Instagram-ready white canvas exports",
-        value=False,
+    st.sidebar.caption(
+        "Want Instagram-ready canvas versions? Head back to tools and pick the "
+        "Instagram Canvas mode."
     )
-    canvas_width = 1080
-    canvas_height = 1350
-    padding = 80
 
-    if create_canvas_exports:
-        canvas_width = st.sidebar.selectbox("Canvas Width", [1080, 1200], index=0)
-        canvas_height = st.sidebar.selectbox("Canvas Height", [1080, 1350], index=1)
-        padding = st.sidebar.slider("Canvas Padding", 0, 200, 80, 5)
+    # Canvas exports live in their own mode now; culling never builds canvases.
+    create_canvas_exports = False
+    canvas_width, canvas_height, padding = 1080, 1350, 80
 
     if r2_enabled():
         st.sidebar.success("Cloudflare R2 storage enabled.")
@@ -2328,12 +2412,6 @@ def main() -> None:
                 type=["jpg", "jpeg", "png", "webp"],
                 accept_multiple_files=True,
             )
-        email = normalize_email(
-            st.text_input("Email (optional, used only to track usage impact)")
-        )
-        st.caption("Used only to track app usage and improve the tool. No spam.")
-
-    log_session_start_once(email)
 
     uploaded_names: list[str] = []
     if use_fast_uploader:
@@ -2605,6 +2683,182 @@ def main() -> None:
 
     elif export_results:
         st.info("Your manual selection changed. Export checked photos again to refresh the ZIP files.")
+
+
+def render_canvas_workspace(email: str) -> None:
+    if st.button("← Back to tools"):
+        st.session_state["view"] = "choose"
+        st.rerun()
+
+    render_compact_brand()
+    render_live_stats()
+
+    st.sidebar.markdown("## Canvas Studio")
+    st.sidebar.caption("Turn your picks into clean, ready-to-post Instagram canvas versions.")
+    ratio_label = st.sidebar.selectbox(
+        "Post size",
+        list(CANVAS_RATIOS.keys()),
+        index=0,
+        help="3:4 fills the most feed space for a single image; 4:5 is the classic "
+        "portrait post; 1:1 is a square.",
+    )
+    canvas_width, canvas_height = CANVAS_RATIOS[ratio_label]
+    padding = st.sidebar.slider(
+        "White border (padding)",
+        0,
+        300,
+        80,
+        5,
+        help="Pixels of white space around each photo.",
+    )
+
+    if r2_enabled():
+        st.sidebar.success("Cloudflare R2 storage enabled.")
+    else:
+        st.sidebar.info("Using local temporary storage.")
+
+    use_fast_uploader = r2_enabled() and get_fast_uploader_component() is not None
+    if use_fast_uploader:
+        assume_cors = os.getenv("CLUTCHCULL_ASSUME_CORS", "").strip() == "1"
+        if not assume_cors and not ensure_r2_cors():
+            use_fast_uploader = False
+
+    render_section_header(
+        "Instagram Canvas",
+        "Create ready-to-post canvas versions",
+        f"Each photo is centered on a clean white {ratio_label} canvas, sized exactly "
+        "for Instagram. Upload your picks, then download them all as a ZIP.",
+    )
+
+    uploaded_files = None
+    fast_upload_result = None
+    upload_card = st.container(border=True)
+    with upload_card:
+        if use_fast_uploader:
+            fast_upload_result = render_fast_uploader()
+        else:
+            st.markdown(
+                """
+                <div class="clutch-upload-card">
+                    <h3 class="clutch-upload-title">Drop your photos here</h3>
+                    <p class="clutch-upload-copy">
+                        These become white-canvas posts ready for Instagram.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            uploaded_files = st.file_uploader(
+                "Upload photos to place on a canvas",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key="canvas_file_uploader",
+            )
+
+    uploaded_names: list[str] = []
+    if use_fast_uploader:
+        if fast_upload_result is None:
+            st.info("Add photos to create Instagram canvas posts.")
+            return
+        uploaded_names = [
+            Path(name).name for name in fast_upload_result.get("uploaded", [])
+        ]
+        if not uploaded_names:
+            st.warning("The upload didn't complete. Check your connection and try again.")
+            return
+    else:
+        if not uploaded_files:
+            st.info("Add photos to create Instagram canvas posts.")
+            return
+        st.write(f"{len(uploaded_files)} photo(s) ready.")
+
+    if st.button("Create Canvas Posts", type="primary"):
+        with st.spinner(f"Building {ratio_label} canvas posts..."):
+            if use_fast_uploader:
+                r2_prefix = st.session_state.get("fast_upload_prefix", "")
+                fetch_previews_from_r2(uploaded_names, r2_prefix)
+            else:
+                r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
+                save_uploaded_files(uploaded_files, r2_prefix)
+
+            clear_output_folder(CANVAS_DIR)
+            image_files = get_image_files(INPUT_DIR)
+            canvas_files: list[Path] = []
+            for index, image_path in enumerate(image_files, start=1):
+                destination = CANVAS_DIR / f"{index:02d}_canvas.jpg"
+                create_white_canvas(
+                    image_path, destination, canvas_width, canvas_height, padding
+                )
+                canvas_files.append(destination)
+
+        st.session_state.canvas_output_files = [str(path) for path in canvas_files]
+        log_google_form_event(
+            "canvas_created",
+            email=email,
+            photos_processed=len(canvas_files),
+            exports=1,
+        )
+        st.success(f"Created {len(canvas_files)} canvas post(s).")
+
+    canvas_files = [Path(path) for path in st.session_state.get("canvas_output_files", [])]
+    canvas_files = [path for path in canvas_files if path.exists()]
+
+    if not canvas_files:
+        return
+
+    render_section_header(
+        "Preview",
+        "Your canvas posts",
+        f"Showing up to {UI_PREVIEW_LIMIT} previews. Every canvas is included in the ZIP.",
+    )
+    columns = st.columns(3)
+    for index, image_path in enumerate(canvas_files[:UI_PREVIEW_LIMIT]):
+        with columns[index % 3]:
+            preview = load_display_preview(image_path)
+            st.image(
+                preview if preview is not None else str(image_path),
+                caption=image_path.name,
+                use_container_width=True,
+            )
+    if len(canvas_files) > UI_PREVIEW_LIMIT:
+        st.caption(
+            f"{len(canvas_files) - UI_PREVIEW_LIMIT} more canvas previews are hidden, "
+            "but still included in the ZIP."
+        )
+
+    canvas_zip = make_zip(CANVAS_DIR, "instagram_canvas_posts.zip")
+    with open(canvas_zip, "rb") as zip_handle:
+        st.download_button(
+            "Download All Canvas Posts (ZIP)",
+            data=zip_handle.read(),
+            file_name="instagram_canvas_posts.zip",
+            mime="application/zip",
+            type="primary",
+        )
+    remove_file_safely(canvas_zip)
+
+
+def main() -> None:
+    ensure_directories()
+
+    st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
+    inject_custom_css()
+
+    view = st.session_state.get("view", "landing")
+
+    if view == "landing":
+        render_landing_view()
+    elif view == "email":
+        render_email_gate()
+    elif view == "choose":
+        render_mode_choice()
+    elif view == "canvas":
+        render_canvas_workspace(st.session_state.get("user_email", ""))
+    elif view == "cull":
+        render_cull_workspace(st.session_state.get("user_email", ""))
+    else:
+        st.session_state["view"] = "landing"
+        render_landing_view()
 
 
 if __name__ == "__main__":
