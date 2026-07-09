@@ -1084,10 +1084,17 @@ def fetch_previews_from_r2(file_names: list[str], r2_prefix: str) -> dict[str, s
 
 
 def render_fast_uploader() -> dict | None:
-    """Render the JS uploader and drive the presigned-URL handshake.
+    """Render the JS uploader and drive the presigned-URL handshakes.
 
-    Returns the completed-upload payload ({uploaded, failed, ...}) once the
-    browser finishes, or None while idle/in-flight.
+    Handles two browser->server exchanges through the one component instance:
+      - preview upload: browser resizes + PUTs previews, reports phase "done".
+      - full-res keeper upload (at export time): browser PUTs the untouched
+        originals of just the selected keepers, reports phase "fullres_done".
+
+    Returns the persisted preview-upload payload for the current batch (so the
+    caller can proceed to analysis), or None until that first upload lands.
+    The full-res result is stashed in session_state.fullres_result for the
+    export section to consume.
     """
     component = get_fast_uploader_component()
     if component is None:
@@ -1097,45 +1104,103 @@ def render_fast_uploader() -> dict | None:
     value = component(
         urls=state.get("fast_upload_urls"),
         urls_nonce=state.get("fast_upload_urls_nonce"),
+        fullres=state.get("fullres_request"),
         max_dim=PREVIEW_MAX_DIMENSION,
         quality=PREVIEW_JPEG_QUALITY,
         key="fast_uploader",
         default=None,
     )
 
-    if not isinstance(value, dict):
-        return None
+    if isinstance(value, dict):
+        phase = value.get("phase")
+        nonce = value.get("nonce")
 
-    phase = value.get("phase")
-    nonce = value.get("nonce")
+        if phase == "need_urls" and nonce and nonce != state.get("fast_upload_urls_nonce"):
+            file_names = [
+                Path(name).name
+                for name in value.get("files", [])
+                if isinstance(name, str) and name
+            ]
+            if file_names:
+                # Drop the previous unprocessed batch's objects (but never the
+                # prefix backing currently displayed results -- its keys are
+                # still used for preview re-download fallback).
+                previous_prefix = state.get("fast_upload_prefix", "")
+                if previous_prefix and previous_prefix != state.get("current_r2_prefix", ""):
+                    cleanup_r2_prefix(previous_prefix)
 
-    if phase == "need_urls" and nonce and nonce != state.get("fast_upload_urls_nonce"):
-        file_names = [
-            Path(name).name
-            for name in value.get("files", [])
-            if isinstance(name, str) and name
-        ]
-        if not file_names:
-            return None
+                r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
+                state.fast_upload_urls = generate_presigned_put_urls(file_names, r2_prefix)
+                state.fast_upload_urls_nonce = nonce
+                state.fast_upload_prefix = r2_prefix
+                state.fast_upload_names = file_names
+                st.rerun()
 
-        # Drop the previous unprocessed batch's objects (but never the prefix
-        # backing currently displayed results -- its keys are still used for
-        # preview re-download fallback).
-        previous_prefix = state.get("fast_upload_prefix", "")
-        if previous_prefix and previous_prefix != state.get("current_r2_prefix", ""):
-            cleanup_r2_prefix(previous_prefix)
+        elif phase == "done" and nonce and nonce == state.get("fast_upload_urls_nonce"):
+            # Persist so we keep returning it on later reruns (e.g. after a
+            # full-res exchange changes the component's live value).
+            state.fast_upload_done = value
+            state.fast_upload_done_nonce = nonce
 
-        r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
-        state.fast_upload_urls = generate_presigned_put_urls(file_names, r2_prefix)
-        state.fast_upload_urls_nonce = nonce
-        state.fast_upload_prefix = r2_prefix
-        state.fast_upload_names = file_names
-        st.rerun()
+        elif phase == "fullres_done" and nonce:
+            request = state.get("fullres_request") or {}
+            if nonce == request.get("nonce"):
+                state.fullres_result = value
 
-    if phase == "done" and nonce and nonce == state.get("fast_upload_urls_nonce"):
-        return value
+    done = state.get("fast_upload_done")
+    if done and state.get("fast_upload_done_nonce") == state.get("fast_upload_urls_nonce"):
+        return done
 
     return None
+
+
+def fetch_fullres_keepers(file_names: list[str], fullres_prefix: str) -> tuple[int, int]:
+    """Pull browser-uploaded full-res keepers from R2 into INPUT_DIR.
+
+    Overwrites the analysis previews at the same filenames, so the existing
+    export pipeline (ranked copy + optional canvas) produces full-resolution
+    output with no further changes. Returns (ok_count, fail_count).
+    """
+    if not fullres_prefix or not file_names:
+        return 0, len(file_names)
+
+    ensure_directories()
+
+    def fetch_one(file_name: str) -> bool:
+        safe_name = Path(file_name).name
+        return download_file_from_r2(
+            f"{fullres_prefix}{safe_name}", INPUT_DIR / safe_name
+        )
+
+    ok = fail = 0
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="r2-fullres") as pool:
+        for success in pool.map(fetch_one, file_names):
+            if success:
+                ok += 1
+            else:
+                fail += 1
+
+    # The overwritten files invalidate their cached metrics (mtime changed);
+    # analysis is already done for this batch, but drop them to be safe in
+    # case the user reprocesses after exporting.
+    clear_metrics_cache()
+    return ok, fail
+
+
+def log_export_completed_once(email: str, total_photos: int, seconds_per_photo: int) -> None:
+    current_batch_id = st.session_state.get("current_batch_id")
+    counted = list(st.session_state.get("counted_export_batch_ids", []))
+    if current_batch_id in counted:
+        return
+    log_google_form_event(
+        "export_completed",
+        email=email,
+        photos_processed=total_photos,
+        exports=1,
+        minutes_saved=calculate_minutes_saved(total_photos, seconds_per_photo),
+    )
+    counted.append(current_batch_id)
+    st.session_state.counted_export_batch_ids = counted
 
 
 def post_google_form_event(
@@ -2398,9 +2463,9 @@ def main() -> None:
     render_section_header(
         "Delivery",
         "Export Your Picks",
-        "Grab the keeper list to pull your full-resolution originals straight from your "
-        "own computer or card -- no download wait. ZIP exports below bundle the photos "
-        "ClutchCull has on hand.",
+        "Export a full-resolution ZIP of your checked keepers -- only those photos upload, "
+        "so it stays fast. Prefer to pull originals from your own catalog? Grab the keeper "
+        "list instead.",
     )
 
     if selected_candidates:
@@ -2435,40 +2500,80 @@ def main() -> None:
             "originals in Lightroom, Finder, or your card reader instantly."
         )
 
-    if st.button("Export Checked Photos", type="primary", disabled=not selected_candidates):
-        with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
-            saved_files, canvas_files = export_selected_images(
-                selected_candidates,
-                canvas_settings,
+    # With the fast uploader, only ~1800px previews live on the server, so the
+    # ZIP would be preview-quality. Instead, on export we ask the browser to
+    # upload the untouched originals of just the checked keepers, pull those
+    # back, and build the ZIP from them -- full resolution, small upload.
+    fullres_mode = use_fast_uploader
+    total_photos = st.session_state.get("last_photos_processed", results["total"])
+
+    export_label = (
+        "Export Full-Resolution Picks" if fullres_mode else "Export Checked Photos"
+    )
+    if st.button(export_label, type="primary", disabled=not selected_candidates):
+        if fullres_mode:
+            keeper_names = [candidate.path.name for candidate in selected_candidates]
+            base_prefix = st.session_state.get("current_r2_prefix", "")
+            fullres_prefix = f"{base_prefix}fullres/"
+            st.session_state.fullres_request = {
+                "nonce": uuid.uuid4().hex[:12],
+                "urls": generate_presigned_put_urls(keeper_names, fullres_prefix),
+            }
+            st.session_state.fullres_prefix = fullres_prefix
+            st.session_state.fullres_names = keeper_names
+            st.session_state.fullres_export_signature = current_signature
+            st.session_state.pop("fullres_result", None)
+            st.session_state.pop("export_results", None)
+            st.rerun()
+        else:
+            with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
+                saved_files, canvas_files = export_selected_images(
+                    selected_candidates,
+                    canvas_settings,
+                )
+            export_results = {"saved_files": saved_files, "canvas_files": canvas_files}
+            log_export_completed_once(email, total_photos, seconds_per_photo)
+            st.session_state.export_results = export_results
+            st.session_state.export_signature = current_signature
+            export_signature = current_signature
+            st.success("Checked photos exported.")
+
+    if fullres_mode:
+        request = st.session_state.get("fullres_request")
+        result = st.session_state.get("fullres_result")
+        waiting = request and (not result or result.get("nonce") != request.get("nonce"))
+
+        if waiting:
+            st.info(
+                "⏳ Uploading full-resolution versions of just your keepers and building the ZIP. "
+                "Only the checked photos upload, so this is quick."
             )
+        elif request and result and result.get("nonce") == request.get("nonce"):
+            with st.spinner("Building your full-resolution ZIP..."):
+                fetch_fullres_keepers(
+                    st.session_state.get("fullres_names", []),
+                    st.session_state.get("fullres_prefix", ""),
+                )
+                saved_files, canvas_files = export_selected_images(
+                    selected_candidates,
+                    canvas_settings,
+                )
+            export_results = {"saved_files": saved_files, "canvas_files": canvas_files}
+            log_export_completed_once(email, total_photos, seconds_per_photo)
+            export_signature = st.session_state.get("fullres_export_signature", current_signature)
+            st.session_state.export_results = export_results
+            st.session_state.export_signature = export_signature
 
-        export_results = {
-            "saved_files": saved_files,
-            "canvas_files": canvas_files,
-        }
-
-        current_batch_id = st.session_state.get("current_batch_id")
-        counted_export_batch_ids = list(st.session_state.get("counted_export_batch_ids", []))
-
-        if current_batch_id not in counted_export_batch_ids:
-            minutes_saved = calculate_minutes_saved(
-                st.session_state.get("last_photos_processed", results["total"]),
-                seconds_per_photo,
-            )
-            log_google_form_event(
-                "export_completed",
-                email=email,
-                photos_processed=st.session_state.get("last_photos_processed", results["total"]),
-                exports=1,
-                minutes_saved=minutes_saved,
-            )
-            counted_export_batch_ids.append(current_batch_id)
-            st.session_state.counted_export_batch_ids = counted_export_batch_ids
-
-        st.session_state.export_results = export_results
-        st.session_state.export_signature = current_signature
-        export_signature = current_signature
-        st.success("Checked photos exported.")
+            failed = result.get("failed") or []
+            if failed:
+                st.warning(
+                    f"{len(failed)} photo(s) couldn't upload at full resolution and are "
+                    "preview-quality in the ZIP. Re-export to retry, or use the keeper list "
+                    "to grab those originals from your own files."
+                )
+            st.success("Full-resolution ZIP ready.")
+            st.session_state.pop("fullres_request", None)
+            st.session_state.pop("fullres_result", None)
 
     if export_results and export_signature == current_signature:
         if canvas_settings.create_exports and export_results["canvas_files"]:
