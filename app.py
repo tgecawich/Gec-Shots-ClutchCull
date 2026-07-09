@@ -130,6 +130,9 @@ REPORT_BASE_W = 1080
 REPORT_BASE_H = 1350
 REPORT_SUPERSAMPLE = 2
 
+# Public app URL shown to mobile users so they can switch to a computer.
+APP_URL = os.getenv("CLUTCHCULL_APP_URL", "https://geccreator-clutchcull.hf.space")
+
 
 @dataclass
 class CanvasSettings:
@@ -2604,14 +2607,42 @@ def render_downloads(results: dict, create_canvas_exports: bool) -> None:
     safe_cleanup_after_download_ready()
 
 
+def is_mobile_device() -> bool:
+    """Best-effort mobile detection from the request User-Agent."""
+    try:
+        user_agent = (st.context.headers.get("User-Agent", "") or "").lower()
+    except Exception:
+        return False
+    return any(k in user_agent for k in ("mobi", "android", "iphone", "ipad", "ipod"))
+
+
+@st.dialog("💻 Best on a computer")
+def show_desktop_notice_dialog() -> None:
+    st.markdown(
+        "**ClutchCull is strongest on a laptop or desktop.** That's where you can "
+        "upload a full shoot and cull hundreds of photos fast — mobile browsers "
+        "struggle with big batches."
+    )
+    st.markdown("On your phone right now? Two easy ways to switch:")
+    st.markdown("**1.** Copy this link and open it in a browser on your computer:")
+    st.code(APP_URL, language=None)
+    st.markdown("**2.** Or open **Instagram on your laptop** and tap the link there.")
+    if st.button("Continue on my phone anyway", use_container_width=True):
+        st.session_state["view"] = "choose"
+        st.rerun()
+
+
 def render_landing_view() -> None:
     render_hide_sidebar_css()
     render_landing_hero()
     render_live_stats()
 
     if st.button("Get Started — it's free", type="primary"):
-        st.session_state["view"] = "choose"
-        st.rerun()
+        if is_mobile_device():
+            show_desktop_notice_dialog()
+        else:
+            st.session_state["view"] = "choose"
+            st.rerun()
 
     render_section_header(
         "Origin",
