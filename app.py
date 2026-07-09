@@ -13,6 +13,7 @@ import cv2
 import imagehash
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 
 try:
@@ -35,6 +36,15 @@ INPUT_DIR = Path("input_photos")
 OUTPUT_DIR = Path("output_photos")
 CANVAS_DIR = Path("canvas_photos")
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+# Browser-side preview settings for the fast uploader. Photos are downscaled
+# in the user's browser to this max dimension before upload, then PUT directly
+# to R2 via presigned URLs -- the app server never touches the upload bytes.
+# 1800px keeps portrait-orientation frames at >= 1200px wide, so metric
+# computation (METRICS_MAX_WIDTH below) still sees full-resolution inputs.
+PREVIEW_MAX_DIMENSION = 1800
+PREVIEW_JPEG_QUALITY = 0.82
+FAST_UPLOADER_DIR = Path(__file__).parent / "components" / "fast_uploader"
 
 ANALYSIS_MAX_WIDTH = 1200
 # Metrics are computed at this width via a draft()-subsampled decode (see
@@ -954,6 +964,178 @@ def cleanup_r2_prefix(prefix: str) -> None:
                 client.delete_objects(Bucket=bucket_name, Delete={"Objects": objects})
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Fast uploader: browser-side resize + direct-to-R2 presigned uploads.
+#
+# The old path funneled full-resolution originals (10-25MB each) through the
+# app server via st.file_uploader. The fast path instead:
+#   1. JS component asks Python for presigned PUT URLs for the chosen files.
+#   2. Browser downscales each photo to PREVIEW_MAX_DIMENSION and PUTs the
+#      ~0.5MB preview straight to R2, 5 files in parallel.
+#   3. Python pulls the small previews from R2 into INPUT_DIR and analyzes
+#      them exactly as before.
+# Net effect: ~95% fewer bytes uploaded, and none of them pass through the
+# (slow) app server. Originals never leave the user's machine; the keeper
+# list export tells them which files to pull from their own disk.
+# ---------------------------------------------------------------------------
+
+_fast_uploader_component = None
+
+
+def get_fast_uploader_component():
+    global _fast_uploader_component
+    if _fast_uploader_component is None and FAST_UPLOADER_DIR.is_dir():
+        _fast_uploader_component = components.declare_component(
+            "clutchcull_fast_uploader",
+            path=str(FAST_UPLOADER_DIR),
+        )
+    return _fast_uploader_component
+
+
+@st.cache_resource(show_spinner=False)
+def ensure_r2_cors() -> bool:
+    """Best-effort: make sure the R2 bucket allows browser PUTs.
+
+    Presigned URLs handle auth; CORS only needs to let the PUT through. If the
+    API token lacks bucket-settings permissions this fails quietly and the
+    sidebar shows manual instructions instead.
+    """
+    client = get_r2_client()
+    bucket_name = get_r2_bucket_name()
+    if client is None or not bucket_name:
+        return False
+
+    desired_rule = {
+        "AllowedMethods": ["PUT", "GET"],
+        "AllowedOrigins": ["*"],
+        "AllowedHeaders": ["*"],
+        "MaxAgeSeconds": 3600,
+    }
+
+    try:
+        existing = client.get_bucket_cors(Bucket=bucket_name)
+        for rule in existing.get("CORSRules", []):
+            if "PUT" in rule.get("AllowedMethods", []):
+                return True
+    except Exception:
+        pass
+
+    try:
+        client.put_bucket_cors(
+            Bucket=bucket_name,
+            CORSConfiguration={"CORSRules": [desired_rule]},
+        )
+        return True
+    except Exception:
+        return False
+
+
+def generate_presigned_put_urls(
+    file_names: list[str],
+    r2_prefix: str,
+    expires_in: int = 3600,
+) -> dict[str, str]:
+    client = get_r2_client()
+    bucket_name = get_r2_bucket_name()
+    if client is None or not bucket_name:
+        return {}
+
+    urls: dict[str, str] = {}
+    for file_name in file_names:
+        safe_name = Path(file_name).name
+        try:
+            urls[file_name] = client.generate_presigned_url(
+                "put_object",
+                Params={"Bucket": bucket_name, "Key": f"{r2_prefix}{safe_name}"},
+                ExpiresIn=expires_in,
+            )
+        except Exception:
+            continue
+    return urls
+
+
+def fetch_previews_from_r2(file_names: list[str], r2_prefix: str) -> dict[str, str]:
+    """Download browser-uploaded previews from R2 into INPUT_DIR for analysis.
+
+    Mirrors save_uploaded_files: clears the working folders, returns the
+    name -> r2_key mapping that downstream code uses for re-download fallback.
+    Previews are ~0.5MB each, so pulling a whole batch server-side takes
+    seconds even on the free tier.
+    """
+    ensure_directories()
+    clear_output_folder(INPUT_DIR)
+    clear_output_folder(OUTPUT_DIR)
+    clear_output_folder(CANVAS_DIR)
+
+    r2_keys_by_name: dict[str, str] = {}
+
+    def fetch_one(file_name: str) -> None:
+        safe_name = Path(file_name).name
+        r2_key = f"{r2_prefix}{safe_name}"
+        if download_file_from_r2(r2_key, INPUT_DIR / safe_name):
+            r2_keys_by_name[safe_name] = r2_key
+
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="r2-fetch") as pool:
+        list(pool.map(fetch_one, file_names))
+
+    return r2_keys_by_name
+
+
+def render_fast_uploader() -> dict | None:
+    """Render the JS uploader and drive the presigned-URL handshake.
+
+    Returns the completed-upload payload ({uploaded, failed, ...}) once the
+    browser finishes, or None while idle/in-flight.
+    """
+    component = get_fast_uploader_component()
+    if component is None:
+        return None
+
+    state = st.session_state
+    value = component(
+        urls=state.get("fast_upload_urls"),
+        urls_nonce=state.get("fast_upload_urls_nonce"),
+        max_dim=PREVIEW_MAX_DIMENSION,
+        quality=PREVIEW_JPEG_QUALITY,
+        key="fast_uploader",
+        default=None,
+    )
+
+    if not isinstance(value, dict):
+        return None
+
+    phase = value.get("phase")
+    nonce = value.get("nonce")
+
+    if phase == "need_urls" and nonce and nonce != state.get("fast_upload_urls_nonce"):
+        file_names = [
+            Path(name).name
+            for name in value.get("files", [])
+            if isinstance(name, str) and name
+        ]
+        if not file_names:
+            return None
+
+        # Drop the previous unprocessed batch's objects (but never the prefix
+        # backing currently displayed results -- its keys are still used for
+        # preview re-download fallback).
+        previous_prefix = state.get("fast_upload_prefix", "")
+        if previous_prefix and previous_prefix != state.get("current_r2_prefix", ""):
+            cleanup_r2_prefix(previous_prefix)
+
+        r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
+        state.fast_upload_urls = generate_presigned_put_urls(file_names, r2_prefix)
+        state.fast_upload_urls_nonce = nonce
+        state.fast_upload_prefix = r2_prefix
+        state.fast_upload_names = file_names
+        st.rerun()
+
+    if phase == "done" and nonce and nonce == state.get("fast_upload_urls_nonce"):
+        return value
+
+    return None
 
 
 def post_google_form_event(
@@ -2034,30 +2216,53 @@ def main() -> None:
     else:
         st.sidebar.info("Using local temporary storage.")
 
+    # Fast path: browser-side resize + direct-to-R2 upload. Falls back to the
+    # classic st.file_uploader when R2 isn't configured or CORS can't be
+    # verified (override with CLUTCHCULL_ASSUME_CORS=1 once set manually).
+    use_fast_uploader = r2_enabled() and get_fast_uploader_component() is not None
+    if use_fast_uploader:
+        assume_cors = os.getenv("CLUTCHCULL_ASSUME_CORS", "").strip() == "1"
+        if not assume_cors and not ensure_r2_cors():
+            use_fast_uploader = False
+            st.sidebar.warning(
+                "Fast uploads disabled: couldn't verify CORS on the R2 bucket. "
+                "Add a CORS rule allowing PUT from any origin in the Cloudflare "
+                "dashboard, then set CLUTCHCULL_ASSUME_CORS=1."
+            )
+
     render_section_header(
         "Start here",
         "Drop your shoot here",
-        "Upload the full batch. ClutchCull analyzes optimized previews while preserving originals for export.",
+        "Photos are optimized in your browser before upload, so big batches move fast. "
+        "Your full-resolution originals stay on your computer."
+        if use_fast_uploader
+        else "Upload the full batch. ClutchCull analyzes optimized previews while preserving originals for export.",
     )
+
+    uploaded_files = None
+    fast_upload_result = None
     upload_card = st.container(border=True)
     with upload_card:
-        st.markdown(
-            """
-            <div class="clutch-upload-card">
-                <h3 class="clutch-upload-title">Drop your shoot here</h3>
-                <p class="clutch-upload-copy">
-                    ClutchCull analyzes optimized previews while preserving originals for export.
-                    Best on desktop for large batches; mobile users can open the sidebar for controls.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        uploaded_files = st.file_uploader(
-            "Upload game, event, or portrait photos",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=True,
-        )
+        if use_fast_uploader:
+            fast_upload_result = render_fast_uploader()
+        else:
+            st.markdown(
+                """
+                <div class="clutch-upload-card">
+                    <h3 class="clutch-upload-title">Drop your shoot here</h3>
+                    <p class="clutch-upload-copy">
+                        ClutchCull analyzes optimized previews while preserving originals for export.
+                        Best on desktop for large batches; mobile users can open the sidebar for controls.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            uploaded_files = st.file_uploader(
+                "Upload game, event, or portrait photos",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+            )
         email = normalize_email(
             st.text_input("Email (optional, used only to track usage impact)")
         )
@@ -2065,20 +2270,44 @@ def main() -> None:
 
     log_session_start_once(email)
 
-    if not uploaded_files:
-        st.info("Add a batch of photos to start culling.")
-        return
-
-    st.write(f"{len(uploaded_files)} files uploaded.")
+    uploaded_names: list[str] = []
+    if use_fast_uploader:
+        if fast_upload_result is None:
+            st.info("Add a batch of photos to start culling.")
+            return
+        uploaded_names = [
+            Path(name).name for name in fast_upload_result.get("uploaded", [])
+        ]
+        if not uploaded_names:
+            st.warning(
+                "The upload didn't complete. Check your connection and try again."
+            )
+            return
+    else:
+        if not uploaded_files:
+            st.info("Add a batch of photos to start culling.")
+            return
+        st.write(f"{len(uploaded_files)} files uploaded.")
 
     if st.button("Process Photos", type="primary"):
         progress_text = st.empty()
         progress_bar = st.progress(0)
-        batch_id = get_next_batch_id()
-        r2_prefix = f"uploads/{get_session_id()}/{batch_id}/"
+
+        if use_fast_uploader:
+            r2_prefix = st.session_state.get("fast_upload_prefix", "")
+            # Prefix looks like uploads/{session}/{batch}/ -- reuse its batch id
+            # so export logging stays deduped per batch.
+            prefix_parts = [part for part in r2_prefix.split("/") if part]
+            batch_id = prefix_parts[-1] if prefix_parts else get_next_batch_id()
+        else:
+            batch_id = get_next_batch_id()
+            r2_prefix = f"uploads/{get_session_id()}/{batch_id}/"
 
         with st.spinner("Analyzing resized previews while preserving originals for export..."):
-            r2_keys_by_name = save_uploaded_files(uploaded_files, r2_prefix)
+            if use_fast_uploader:
+                r2_keys_by_name = fetch_previews_from_r2(uploaded_names, r2_prefix)
+            else:
+                r2_keys_by_name = save_uploaded_files(uploaded_files, r2_prefix)
             results = process_images(
                 blur_threshold=blur_threshold,
                 duplicate_threshold=duplicate_threshold,
@@ -2169,8 +2398,43 @@ def main() -> None:
     render_section_header(
         "Delivery",
         "Export Your Picks",
-        "Build a ZIP of every checked photo. Full-size ZIPs can take longer on large batches.",
+        "Grab the keeper list to pull your full-resolution originals straight from your "
+        "own computer or card -- no download wait. ZIP exports below bundle the photos "
+        "ClutchCull has on hand.",
     )
+
+    if selected_candidates:
+        keeper_names = [candidate.path.name for candidate in selected_candidates]
+        keeper_txt = "\n".join(keeper_names) + "\n"
+        keeper_csv_lines = ["rank,filename,score,selection_reason"]
+        for rank, candidate in enumerate(selected_candidates, start=1):
+            reason = candidate.selection_reason.replace('"', "'")
+            keeper_csv_lines.append(
+                f'{rank},"{candidate.path.name}",{candidate.score:.4f},"{reason}"'
+            )
+        keeper_csv = "\n".join(keeper_csv_lines) + "\n"
+
+        keeper_columns = st.columns(2)
+        with keeper_columns[0]:
+            st.download_button(
+                "Download Keeper List (.txt)",
+                data=keeper_txt,
+                file_name="clutchcull_keepers.txt",
+                mime="text/plain",
+                type="primary",
+            )
+        with keeper_columns[1]:
+            st.download_button(
+                "Keeper List with Scores (.csv)",
+                data=keeper_csv,
+                file_name="clutchcull_keepers.csv",
+                mime="text/csv",
+            )
+        st.caption(
+            "The keeper list names every checked photo so you can select the "
+            "originals in Lightroom, Finder, or your card reader instantly."
+        )
+
     if st.button("Export Checked Photos", type="primary", disabled=not selected_candidates):
         with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
             saved_files, canvas_files = export_selected_images(
