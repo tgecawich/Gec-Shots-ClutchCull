@@ -1649,6 +1649,23 @@ def build_selection_reason(candidate: PhotoCandidate) -> str:
     )
 
 
+# Short, friendly badge shown on each keeper so the pick feels earned, not
+# a black box. Driven by the top-scoring quality component.
+_BADGE_BY_COMPONENT = {
+    "sharpness": "⚡ Tack-sharp",
+    "detail": "🔍 Rich detail",
+    "contrast": "🌗 Clean contrast",
+    "exposure": "☀️ Well-exposed",
+}
+
+
+def build_selection_badge(candidate: PhotoCandidate) -> str:
+    if not candidate.score_breakdown:
+        return "✅ Strong pick"
+    top_component = max(candidate.score_breakdown.items(), key=lambda item: item[1])
+    return _BADGE_BY_COMPONENT.get(top_component[0], "✅ Strong pick")
+
+
 def filter_blurry_images(
     image_files: list[Path],
     blur_threshold: float,
@@ -1698,9 +1715,11 @@ def filter_blurry_images(
             if progress_bar is not None:
                 progress_bar.progress(processed_count / total_images)
 
-    # Apply the blur/unreadable filter in deterministic file order.
+    # Apply the blur/unreadable filter in deterministic file order. Blurry
+    # shots are RETAINED (not discarded) so the user can rescue any the tool
+    # cut too aggressively -- nothing is ever deleted.
     candidates: list[PhotoCandidate] = []
-    blurry_count = 0
+    blurry_candidates: list[PhotoCandidate] = []
     unreadable_count = 0
 
     for candidate in results:
@@ -1708,13 +1727,13 @@ def filter_blurry_images(
             unreadable_count += 1
             continue
         if candidate.sharpness < blur_threshold:
-            blurry_count += 1
+            blurry_candidates.append(candidate)
             continue
         candidates.append(candidate)
 
     gc.collect()
 
-    return candidates, blurry_count, unreadable_count
+    return candidates, blurry_candidates, unreadable_count
 
 
 def remove_near_duplicates(
@@ -1869,7 +1888,7 @@ def process_images(
     ensure_directories()
 
     image_files = get_image_files(INPUT_DIR)
-    candidates, blurry_count, unreadable_count = filter_blurry_images(
+    candidates, blurry_candidates, unreadable_count = filter_blurry_images(
         image_files,
         blur_threshold,
         r2_keys_by_name=r2_keys_by_name,
@@ -1887,6 +1906,19 @@ def process_images(
     )
     selected_candidates = unique_candidates[:top_n]
 
+    # Rejected shots the user can rescue, most-likely-wrongly-cut first
+    # (closest to the sharpness cutoff shown at the top).
+    rejected_candidates = sorted(
+        blurry_candidates,
+        key=lambda candidate: candidate.sharpness,
+        reverse=True,
+    )
+    for candidate in rejected_candidates:
+        candidate.selection_reason = (
+            f"Removed as soft/blurry (sharpness {candidate.sharpness:.0f}). "
+            "Rescue it if this frame is a keeper."
+        )
+
     if progress_bar is not None:
         progress_bar.progress(1.0)
     if progress_text is not None:
@@ -1896,11 +1928,12 @@ def process_images(
 
     return {
         "total": len(image_files),
-        "blurry_removed": blurry_count,
+        "blurry_removed": len(blurry_candidates),
         "duplicates_removed": duplicate_count,
         "unreadable_skipped": unreadable_count,
         "selected": len(selected_candidates),
         "selected_candidates": selected_candidates,
+        "rejected_candidates": rejected_candidates,
         "duplicate_groups": duplicate_groups,
         "scoring_preset": scoring_preset,
     }
@@ -2013,7 +2046,10 @@ def render_image_grid(candidates: list[PhotoCandidate]) -> None:
                 preview if preview is not None else str(candidate.path),
                 use_container_width=True,
             )
-            st.caption(f"#{index + 1} {candidate.path.name}")
+            st.markdown(
+                f"**#{index + 1}** &nbsp; `{build_selection_badge(candidate)}`"
+            )
+            st.caption(f"{candidate.path.name}")
             st.caption(candidate.selection_reason)
 
     if len(candidates) > UI_PREVIEW_LIMIT:
@@ -2021,6 +2057,77 @@ def render_image_grid(candidates: list[PhotoCandidate]) -> None:
             f"{len(candidates) - UI_PREVIEW_LIMIT} more shortlisted files are hidden here "
             "to keep the app stable."
         )
+
+
+def render_rescue_bin(rejected_candidates: list[PhotoCandidate]) -> None:
+    """Show auto-removed (soft/blurry) shots so the user can add any back.
+
+    Directly answers the biggest first-timer fear: "did it throw out my one
+    great shot?" Nothing is ever deleted, and rescued frames flow straight
+    into the final review and export.
+    """
+    if not rejected_candidates:
+        return
+
+    rescued = set(st.session_state.get("rescued_filenames", set()))
+    with st.expander(
+        f"🩹 Removed shots — rescue any you want back ({len(rejected_candidates)})"
+    ):
+        st.caption(
+            "These were auto-removed as soft or blurry — but nothing is ever deleted. "
+            "Check any frame you want back in your keepers. Closest-to-sharp shown first."
+        )
+        columns = st.columns(3)
+        for index, candidate in enumerate(rejected_candidates[:UI_PREVIEW_LIMIT]):
+            with columns[index % 3]:
+                preview = load_display_preview(candidate.path, candidate.r2_key)
+                st.image(
+                    preview if preview is not None else str(candidate.path),
+                    use_container_width=True,
+                )
+                st.caption(f"{candidate.path.name} · sharpness {candidate.sharpness:.0f}")
+                is_checked = st.checkbox(
+                    "Rescue this shot",
+                    value=candidate.path.name in rescued,
+                    key=f"rescue__{candidate.path.name}",
+                )
+                if is_checked:
+                    rescued.add(candidate.path.name)
+                else:
+                    rescued.discard(candidate.path.name)
+
+        if len(rejected_candidates) > UI_PREVIEW_LIMIT:
+            st.caption(
+                f"{len(rejected_candidates) - UI_PREVIEW_LIMIT} more removed shots are "
+                "hidden here for performance."
+            )
+
+    st.session_state.rescued_filenames = rescued
+
+
+def merge_rescued_candidates(
+    effective_candidates: list[PhotoCandidate],
+    rejected_candidates: list[PhotoCandidate],
+) -> list[PhotoCandidate]:
+    """Fold any rescued shots into the keeper pool and pre-check them."""
+    rescued_names = set(st.session_state.get("rescued_filenames", set()))
+    if not rescued_names:
+        return effective_candidates
+
+    existing_names = {candidate.path.name for candidate in effective_candidates}
+    rescued_candidates = [
+        candidate
+        for candidate in rejected_candidates
+        if candidate.path.name in rescued_names
+        and candidate.path.name not in existing_names
+    ]
+    if not rescued_candidates:
+        return effective_candidates
+
+    selected = set(st.session_state.get("selected_filenames", set()))
+    selected.update(candidate.path.name for candidate in rescued_candidates)
+    st.session_state.selected_filenames = selected
+    return effective_candidates + rescued_candidates
 
 
 def get_duplicate_candidate_lookup(
@@ -2164,13 +2271,18 @@ def render_compare_similar_photos(
 
 def reset_manual_selection(candidates: list[PhotoCandidate]) -> None:
     for key in list(st.session_state.keys()):
-        if key.startswith("select_photo__") or key.startswith("similar_select_"):
+        if (
+            key.startswith("select_photo__")
+            or key.startswith("similar_select_")
+            or key.startswith("rescue__")
+        ):
             del st.session_state[key]
 
     st.session_state.selected_filenames = {
         candidate.path.name
         for candidate in candidates
     }
+    st.session_state.rescued_filenames = set()
     st.session_state.export_results = None
     st.session_state.export_signature = None
     st.session_state.similar_photo_swaps = {}
@@ -2605,6 +2717,18 @@ def render_cull_workspace(email: str) -> None:
     effective_candidates = render_compare_similar_photos(
         results["selected_candidates"],
         duplicate_groups,
+    )
+
+    render_section_header(
+        "Safety net",
+        "Nothing was deleted",
+        "ClutchCull removed soft and duplicate frames, but every original is safe. "
+        "Open the bin below to add any removed shot back to your keepers.",
+    )
+    render_rescue_bin(results.get("rejected_candidates", []))
+    effective_candidates = merge_rescued_candidates(
+        effective_candidates,
+        results.get("rejected_candidates", []),
     )
 
     render_section_header(
