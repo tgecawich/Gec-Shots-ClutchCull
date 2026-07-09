@@ -14,7 +14,7 @@ import imagehash
 import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
-from PIL import Image
+from PIL import Image, ImageOps
 
 try:
     import boto3
@@ -108,6 +108,19 @@ SCORING_PRESETS = {
         "exposure": 0.1,
     },
 }
+
+# Instagram-ready canvas sizes -> (width, height) in pixels. Order matters:
+# the first entry is the default (3:4, the strongest single-image IG post size).
+CANVAS_RATIOS = {
+    "3:4 — 1080 × 1440 (best for IG posts)": (1080, 1440),
+    "4:5 — 1080 × 1350": (1080, 1350),
+    "1:1 — 1080 × 1080 (square)": (1080, 1080),
+}
+
+# Canvases render at up to this long-edge (2x Instagram's 1080/1440 display
+# size). Keeps the photo near its native resolution for crisp downsampling
+# while keeping file sizes reasonable. See create_white_canvas().
+CANVAS_MAX_LONG_EDGE = 2880
 
 
 @dataclass
@@ -356,30 +369,30 @@ def inject_custom_css() -> None:
         }
 
         .clutch-metric-card {
-            min-height: 116px;
+            min-height: 84px;
             border: 1px solid rgba(255, 255, 255, 0.13);
-            border-radius: 20px;
-            padding: 1rem;
+            border-radius: 16px;
+            padding: 0.75rem 0.85rem;
             background:
                 radial-gradient(circle at 90% 10%, rgba(255, 138, 42, 0.20), transparent 45%),
                 linear-gradient(180deg, rgba(255, 255, 255, 0.085), rgba(255, 255, 255, 0.035));
-            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.20);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
         }
 
         .clutch-metric-label {
             color: var(--clutch-muted);
-            font-size: 0.76rem;
+            font-size: 0.68rem;
             font-weight: 850;
-            letter-spacing: 0.095em;
+            letter-spacing: 0.09em;
             text-transform: uppercase;
         }
 
         .clutch-metric-value {
-            margin-top: 0.45rem;
+            margin-top: 0.3rem;
             color: var(--clutch-text);
-            font-size: clamp(1.55rem, 4vw, 2.3rem);
+            font-size: clamp(1.25rem, 3.2vw, 1.85rem);
             font-weight: 950;
-            letter-spacing: -0.055em;
+            letter-spacing: -0.05em;
         }
 
         .clutch-note {
@@ -618,6 +631,54 @@ def inject_custom_css() -> None:
         unsafe_allow_html=True,
     )
 
+    # Bigger, clearer buttons and controls across the whole app.
+    st.markdown(
+        """
+        <style>
+        /* Every button (actions + downloads): larger, bolder, easier to tap. */
+        .stButton > button,
+        .stDownloadButton > button {
+            font-size: 1.2rem !important;
+            font-weight: 700 !important;
+            padding: 0.95rem 1.6rem !important;
+            min-height: 3.3rem !important;
+            border-radius: 16px !important;
+            letter-spacing: 0.01em;
+            line-height: 1.25 !important;
+        }
+        .stButton > button:hover,
+        .stDownloadButton > button:hover {
+            transform: translateY(-1px);
+        }
+        /* Control labels: larger and higher-contrast so they're easy to read. */
+        [data-testid="stWidgetLabel"] p,
+        [data-testid="stWidgetLabel"] label {
+            font-size: 1.08rem !important;
+            font-weight: 600 !important;
+        }
+        /* Inputs and dropdowns: bigger text. */
+        .stTextInput input,
+        .stSelectbox div[data-baseweb="select"] > div {
+            font-size: 1.08rem !important;
+            min-height: 3rem !important;
+        }
+        /* Sidebar headings + captions: a touch larger. */
+        [data-testid="stSidebar"] h2 {
+            font-size: 1.45rem !important;
+        }
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+            font-size: 0.98rem !important;
+        }
+        /* Section descriptions: more readable body size. */
+        .clutch-section p {
+            font-size: 1.08rem;
+            line-height: 1.6;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_hero() -> None:
     st.markdown(
@@ -720,7 +781,7 @@ def render_workspace_proof_text() -> None:
     st.markdown(
         f"""
         <div class="clutch-proof-strip">
-            Live proof: {sessions:,} sessions ‚Ä¢ {photos:,} photos processed ‚Ä¢ {exports:,} exports
+            Live proof: {sessions:,} sessions • {photos:,} photos processed • {exports:,} exports
         </div>
         """,
         unsafe_allow_html=True,
@@ -734,7 +795,7 @@ def render_built_from_sideline_card() -> None:
             <h3>Built from the sideline</h3>
             <p>
                 ClutchCull started inside the Gec Shots workflow: football, basketball, baseball,
-                hockey, and event galleries with hundreds of frames per shoot. The goal is simple ‚Äî
+                hockey, and event galleries with hundreds of frames per shoot. The goal is simple —
                 cut the sorting time, keep the strongest images, and get photographers to the edit faster.
             </p>
         </div>
@@ -1083,11 +1144,22 @@ def fetch_previews_from_r2(file_names: list[str], r2_prefix: str) -> dict[str, s
     return r2_keys_by_name
 
 
-def render_fast_uploader() -> dict | None:
-    """Render the JS uploader and drive the presigned-URL handshake.
+def render_fast_uploader(raw_upload: bool = False) -> dict | None:
+    """Render the JS uploader and drive the presigned-URL handshakes.
 
-    Returns the completed-upload payload ({uploaded, failed, ...}) once the
-    browser finishes, or None while idle/in-flight.
+    Handles two browser->server exchanges through the one component instance:
+      - preview upload: browser resizes + PUTs previews, reports phase "done".
+      - full-res keeper upload (at export time): browser PUTs the untouched
+        originals of just the selected keepers, reports phase "fullres_done".
+
+    When ``raw_upload`` is True the initial upload skips in-browser resizing
+    and PUTs the untouched originals -- used by the canvas tool so exports are
+    built from full-resolution, uncompressed source images.
+
+    Returns the persisted preview-upload payload for the current batch (so the
+    caller can proceed to analysis), or None until that first upload lands.
+    The full-res result is stashed in session_state.fullres_result for the
+    export section to consume.
     """
     component = get_fast_uploader_component()
     if component is None:
@@ -1097,45 +1169,104 @@ def render_fast_uploader() -> dict | None:
     value = component(
         urls=state.get("fast_upload_urls"),
         urls_nonce=state.get("fast_upload_urls_nonce"),
+        fullres=state.get("fullres_request"),
         max_dim=PREVIEW_MAX_DIMENSION,
         quality=PREVIEW_JPEG_QUALITY,
+        raw_upload=raw_upload,
         key="fast_uploader",
         default=None,
     )
 
-    if not isinstance(value, dict):
-        return None
+    if isinstance(value, dict):
+        phase = value.get("phase")
+        nonce = value.get("nonce")
 
-    phase = value.get("phase")
-    nonce = value.get("nonce")
+        if phase == "need_urls" and nonce and nonce != state.get("fast_upload_urls_nonce"):
+            file_names = [
+                Path(name).name
+                for name in value.get("files", [])
+                if isinstance(name, str) and name
+            ]
+            if file_names:
+                # Drop the previous unprocessed batch's objects (but never the
+                # prefix backing currently displayed results -- its keys are
+                # still used for preview re-download fallback).
+                previous_prefix = state.get("fast_upload_prefix", "")
+                if previous_prefix and previous_prefix != state.get("current_r2_prefix", ""):
+                    cleanup_r2_prefix(previous_prefix)
 
-    if phase == "need_urls" and nonce and nonce != state.get("fast_upload_urls_nonce"):
-        file_names = [
-            Path(name).name
-            for name in value.get("files", [])
-            if isinstance(name, str) and name
-        ]
-        if not file_names:
-            return None
+                r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
+                state.fast_upload_urls = generate_presigned_put_urls(file_names, r2_prefix)
+                state.fast_upload_urls_nonce = nonce
+                state.fast_upload_prefix = r2_prefix
+                state.fast_upload_names = file_names
+                st.rerun()
 
-        # Drop the previous unprocessed batch's objects (but never the prefix
-        # backing currently displayed results -- its keys are still used for
-        # preview re-download fallback).
-        previous_prefix = state.get("fast_upload_prefix", "")
-        if previous_prefix and previous_prefix != state.get("current_r2_prefix", ""):
-            cleanup_r2_prefix(previous_prefix)
+        elif phase == "done" and nonce and nonce == state.get("fast_upload_urls_nonce"):
+            # Persist so we keep returning it on later reruns (e.g. after a
+            # full-res exchange changes the component's live value).
+            state.fast_upload_done = value
+            state.fast_upload_done_nonce = nonce
 
-        r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
-        state.fast_upload_urls = generate_presigned_put_urls(file_names, r2_prefix)
-        state.fast_upload_urls_nonce = nonce
-        state.fast_upload_prefix = r2_prefix
-        state.fast_upload_names = file_names
-        st.rerun()
+        elif phase == "fullres_done" and nonce:
+            request = state.get("fullres_request") or {}
+            if nonce == request.get("nonce"):
+                state.fullres_result = value
 
-    if phase == "done" and nonce and nonce == state.get("fast_upload_urls_nonce"):
-        return value
+    done = state.get("fast_upload_done")
+    if done and state.get("fast_upload_done_nonce") == state.get("fast_upload_urls_nonce"):
+        return done
 
     return None
+
+
+def fetch_fullres_keepers(file_names: list[str], fullres_prefix: str) -> tuple[int, int]:
+    """Pull browser-uploaded full-res keepers from R2 into INPUT_DIR.
+
+    Overwrites the analysis previews at the same filenames, so the existing
+    export pipeline (ranked copy + optional canvas) produces full-resolution
+    output with no further changes. Returns (ok_count, fail_count).
+    """
+    if not fullres_prefix or not file_names:
+        return 0, len(file_names)
+
+    ensure_directories()
+
+    def fetch_one(file_name: str) -> bool:
+        safe_name = Path(file_name).name
+        return download_file_from_r2(
+            f"{fullres_prefix}{safe_name}", INPUT_DIR / safe_name
+        )
+
+    ok = fail = 0
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="r2-fullres") as pool:
+        for success in pool.map(fetch_one, file_names):
+            if success:
+                ok += 1
+            else:
+                fail += 1
+
+    # The overwritten files invalidate their cached metrics (mtime changed);
+    # analysis is already done for this batch, but drop them to be safe in
+    # case the user reprocesses after exporting.
+    clear_metrics_cache()
+    return ok, fail
+
+
+def log_export_completed_once(email: str, total_photos: int, seconds_per_photo: int) -> None:
+    current_batch_id = st.session_state.get("current_batch_id")
+    counted = list(st.session_state.get("counted_export_batch_ids", []))
+    if current_batch_id in counted:
+        return
+    log_google_form_event(
+        "export_completed",
+        email=email,
+        photos_processed=total_photos,
+        exports=1,
+        minutes_saved=calculate_minutes_saved(total_photos, seconds_per_photo),
+    )
+    counted.append(current_batch_id)
+    st.session_state.counted_export_batch_ids = counted
 
 
 def post_google_form_event(
@@ -1615,6 +1746,8 @@ def remove_near_duplicates(
 
     duplicate_groups = list(duplicate_groups_by_keeper.values())
     return kept_candidates, duplicate_count, duplicate_groups
+
+
 def create_white_canvas(
     image_path: Path,
     output_path: Path,
@@ -1622,19 +1755,61 @@ def create_white_canvas(
     canvas_height: int,
     padding: int,
 ) -> None:
+    """Center a photo on a white canvas at the given aspect ratio.
+
+    The passed (canvas_width, canvas_height, padding) describe the *base*
+    Instagram size (e.g. 1080x1440). Rendering only at 1080px would downscale
+    a 4000-6000px original to roughly a third of its resolution -- visibly
+    soft. Instead we scale the whole canvas UP (same aspect ratio) so the photo
+    sits at close to its native resolution, capped at CANVAS_MAX_LONG_EDGE.
+    Instagram accepts the larger file and downsamples it cleanly, and the
+    output is genuinely high resolution for any other use too.
+    """
     with Image.open(image_path) as img:
-        img = img.convert("RGB")
+        # Respect embedded EXIF orientation so portraits aren't rotated wrong.
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        source_width, source_height = img.size
 
-        max_width = canvas_width - (2 * padding)
-        max_height = canvas_height - (2 * padding)
-        img.thumbnail((max_width, max_height), RESAMPLING.LANCZOS)
+        # Photo area at the base canvas size.
+        base_area_width = max(1, canvas_width - (2 * padding))
+        base_area_height = max(1, canvas_height - (2 * padding))
 
-        canvas = Image.new("RGB", (canvas_width, canvas_height), "white")
-        x = (canvas_width - img.width) // 2
-        y = (canvas_height - img.height) // 2
+        # How much the photo is scaled to fit at the base size. < 1 means the
+        # original is being shrunk -- so scale the canvas up by the inverse to
+        # recover that lost resolution, capped by the long-edge ceiling.
+        base_fit = min(
+            base_area_width / source_width,
+            base_area_height / source_height,
+        )
+        scale = 1.0 / base_fit if base_fit < 1 else 1.0
+        long_edge = max(canvas_width, canvas_height) * scale
+        if long_edge > CANVAS_MAX_LONG_EDGE:
+            scale *= CANVAS_MAX_LONG_EDGE / long_edge
+        scale = max(scale, 1.0)
 
+        out_width = round(canvas_width * scale)
+        out_height = round(canvas_height * scale)
+        out_padding = round(padding * scale)
+
+        area_width = max(1, out_width - (2 * out_padding))
+        area_height = max(1, out_height - (2 * out_padding))
+        # thumbnail() only ever downscales, so a smaller-than-target source is
+        # never upscaled (which would just soften it).
+        img.thumbnail((area_width, area_height), RESAMPLING.LANCZOS)
+
+        canvas = Image.new("RGB", (out_width, out_height), "white")
+        x = (out_width - img.width) // 2
+        y = (out_height - img.height) // 2
         canvas.paste(img, (x, y))
-        canvas.save(output_path, quality=95)
+
+        # Max-quality JPEG: quality 98, no chroma subsampling (4:4:4) so fine
+        # edges and text stay crisp.
+        canvas.save(
+            output_path,
+            quality=98,
+            subsampling=0,
+            optimize=True,
+        )
 
 
 def ensure_candidate_local_file(candidate: PhotoCandidate) -> bool:
@@ -2116,8 +2291,8 @@ def render_landing_view() -> None:
     render_landing_hero()
     render_live_stats()
 
-    if st.button("Start Sorting", type="primary"):
-        st.session_state["view"] = "workspace"
+    if st.button("Get Started", type="primary"):
+        st.session_state["view"] = "email"
         st.rerun()
 
     render_section_header(
@@ -2129,25 +2304,107 @@ def render_landing_view() -> None:
     render_how_it_works()
 
 
-def main() -> None:
-    ensure_directories()
+def render_compact_brand() -> None:
+    st.markdown(
+        '<div class="clutch-logo" style="text-align:center;margin:0.5rem 0 0.25rem;">'
+        'Clutch<span>Cull</span></div>'
+        '<div class="clutch-byline" style="text-align:center;">by Gec Shots</div>',
+        unsafe_allow_html=True,
+    )
 
-    st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
-    inject_custom_css()
 
-    if "view" not in st.session_state:
-        st.session_state["view"] = "landing"
+def render_email_gate() -> None:
+    render_hide_sidebar_css()
+    render_compact_brand()
+    render_live_stats()
+    render_section_header(
+        "Welcome",
+        "Enter your email to continue",
+        "Used only to power the usage & impact dashboard above — nothing else. "
+        "No spam, never shared, and never used for anything but tracking overall impact.",
+    )
 
-    if st.session_state["view"] == "landing":
-        render_landing_view()
-        return
+    with st.container(border=True):
+        email_input = st.text_input(
+            "Email",
+            value=st.session_state.get("user_email", ""),
+            placeholder="you@example.com",
+        )
+        continue_col, skip_col = st.columns([2, 1])
+        with continue_col:
+            if st.button("Continue", type="primary", use_container_width=True):
+                st.session_state.user_email = normalize_email(email_input)
+                log_session_start_once(st.session_state.user_email)
+                st.session_state["view"] = "choose"
+                st.rerun()
+        with skip_col:
+            if st.button("Skip for now", use_container_width=True):
+                st.session_state.user_email = ""
+                log_session_start_once("")
+                st.session_state["view"] = "choose"
+                st.rerun()
 
-    if st.button("‚Üê Back to Home"):
+    if st.button("← Back to home"):
         st.session_state["view"] = "landing"
         st.rerun()
 
-    render_workspace_proof_text()
-    render_hero()
+
+def render_mode_choice() -> None:
+    render_hide_sidebar_css()
+    render_compact_brand()
+    render_section_header(
+        "Choose your tool",
+        "What would you like to do?",
+        "Two tools in one workspace: cull a shoot down to its keepers, or turn photos "
+        "into Instagram-ready canvas posts.",
+    )
+
+    cull_col, canvas_col = st.columns(2)
+    with cull_col:
+        st.markdown(
+            """
+            <div class="clutch-upload-card">
+                <h3 class="clutch-upload-title">🏟️ Cull my photos</h3>
+                <p class="clutch-upload-copy">
+                    Upload a full shoot and let ClutchCull remove blurry frames and
+                    near-duplicates, then rank the strongest shots into a keeper shortlist.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Start culling", type="primary", use_container_width=True):
+            st.session_state["view"] = "cull"
+            st.rerun()
+
+    with canvas_col:
+        st.markdown(
+            """
+            <div class="clutch-upload-card">
+                <h3 class="clutch-upload-title">📱 Instagram canvas posts</h3>
+                <p class="clutch-upload-copy">
+                    Drop in your picks and get clean, ready-to-post versions centered on a
+                    white canvas — 3:4, 4:5, or 1:1, sized exactly for Instagram.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Create canvas posts", type="primary", use_container_width=True):
+            st.session_state["view"] = "canvas"
+            st.rerun()
+
+    if st.button("← Back"):
+        st.session_state["view"] = "email"
+        st.rerun()
+
+
+def render_cull_workspace(email: str) -> None:
+    if st.button("← Back to tools"):
+        st.session_state["view"] = "choose"
+        st.rerun()
+
+    render_compact_brand()
     render_live_stats()
 
     st.sidebar.markdown("## ClutchCull Control Room")
@@ -2163,7 +2420,7 @@ def main() -> None:
         "Blur Threshold",
         0.0,
         100.0,
-        12.0,
+        40.0,
         1.0,
         help="Higher values are stricter and remove more soft images.",
     )
@@ -2185,9 +2442,9 @@ def main() -> None:
     )
     seconds_per_photo = st.sidebar.slider(
         "Manual review seconds per photo",
-        2,
+        0,
+        20,
         15,
-        6,
         1,
         help="Used only for the estimated time-saved impact metric.",
     )
@@ -2195,21 +2452,14 @@ def main() -> None:
     st.sidebar.caption(
         "Tip: for sports bursts, keep duplicate removal moderate so you can compare key moments."
     )
-
-    st.sidebar.markdown("### Canvas Exports")
-    st.sidebar.caption("Optional white-canvas versions for social posting. Default is off for faster exports.")
-    create_canvas_exports = st.sidebar.checkbox(
-        "Create Instagram-ready white canvas exports",
-        value=False,
+    st.sidebar.caption(
+        "Want Instagram-ready canvas versions? Head back to tools and pick the "
+        "Instagram Canvas mode."
     )
-    canvas_width = 1080
-    canvas_height = 1350
-    padding = 80
 
-    if create_canvas_exports:
-        canvas_width = st.sidebar.selectbox("Canvas Width", [1080, 1200], index=0)
-        canvas_height = st.sidebar.selectbox("Canvas Height", [1080, 1350], index=1)
-        padding = st.sidebar.slider("Canvas Padding", 0, 200, 80, 5)
+    # Canvas exports live in their own mode now; culling never builds canvases.
+    create_canvas_exports = False
+    canvas_width, canvas_height, padding = 1080, 1350, 80
 
     if r2_enabled():
         st.sidebar.success("Cloudflare R2 storage enabled.")
@@ -2263,12 +2513,6 @@ def main() -> None:
                 type=["jpg", "jpeg", "png", "webp"],
                 accept_multiple_files=True,
             )
-        email = normalize_email(
-            st.text_input("Email (optional, used only to track usage impact)")
-        )
-        st.caption("Used only to track app usage and improve the tool. No spam.")
-
-    log_session_start_once(email)
 
     uploaded_names: list[str] = []
     if use_fast_uploader:
@@ -2398,9 +2642,9 @@ def main() -> None:
     render_section_header(
         "Delivery",
         "Export Your Picks",
-        "Grab the keeper list to pull your full-resolution originals straight from your "
-        "own computer or card -- no download wait. ZIP exports below bundle the photos "
-        "ClutchCull has on hand.",
+        "Export a full-resolution ZIP of your checked keepers -- only those photos upload, "
+        "so it stays fast. Prefer to pull originals from your own catalog? Grab the keeper "
+        "list instead.",
     )
 
     if selected_candidates:
@@ -2435,40 +2679,80 @@ def main() -> None:
             "originals in Lightroom, Finder, or your card reader instantly."
         )
 
-    if st.button("Export Checked Photos", type="primary", disabled=not selected_candidates):
-        with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
-            saved_files, canvas_files = export_selected_images(
-                selected_candidates,
-                canvas_settings,
+    # With the fast uploader, only ~1800px previews live on the server, so the
+    # ZIP would be preview-quality. Instead, on export we ask the browser to
+    # upload the untouched originals of just the checked keepers, pull those
+    # back, and build the ZIP from them -- full resolution, small upload.
+    fullres_mode = use_fast_uploader
+    total_photos = st.session_state.get("last_photos_processed", results["total"])
+
+    export_label = (
+        "Export Full-Resolution Picks" if fullres_mode else "Export Checked Photos"
+    )
+    if st.button(export_label, type="primary", disabled=not selected_candidates):
+        if fullres_mode:
+            keeper_names = [candidate.path.name for candidate in selected_candidates]
+            base_prefix = st.session_state.get("current_r2_prefix", "")
+            fullres_prefix = f"{base_prefix}fullres/"
+            st.session_state.fullres_request = {
+                "nonce": uuid.uuid4().hex[:12],
+                "urls": generate_presigned_put_urls(keeper_names, fullres_prefix),
+            }
+            st.session_state.fullres_prefix = fullres_prefix
+            st.session_state.fullres_names = keeper_names
+            st.session_state.fullres_export_signature = current_signature
+            st.session_state.pop("fullres_result", None)
+            st.session_state.pop("export_results", None)
+            st.rerun()
+        else:
+            with st.spinner("Exporting checked photos and building ZIP files. Large batches may take longer..."):
+                saved_files, canvas_files = export_selected_images(
+                    selected_candidates,
+                    canvas_settings,
+                )
+            export_results = {"saved_files": saved_files, "canvas_files": canvas_files}
+            log_export_completed_once(email, total_photos, seconds_per_photo)
+            st.session_state.export_results = export_results
+            st.session_state.export_signature = current_signature
+            export_signature = current_signature
+            st.success("Checked photos exported.")
+
+    if fullres_mode:
+        request = st.session_state.get("fullres_request")
+        result = st.session_state.get("fullres_result")
+        waiting = request and (not result or result.get("nonce") != request.get("nonce"))
+
+        if waiting:
+            st.info(
+                "⏳ Uploading full-resolution versions of just your keepers and building the ZIP. "
+                "Only the checked photos upload, so this is quick."
             )
+        elif request and result and result.get("nonce") == request.get("nonce"):
+            with st.spinner("Building your full-resolution ZIP..."):
+                fetch_fullres_keepers(
+                    st.session_state.get("fullres_names", []),
+                    st.session_state.get("fullres_prefix", ""),
+                )
+                saved_files, canvas_files = export_selected_images(
+                    selected_candidates,
+                    canvas_settings,
+                )
+            export_results = {"saved_files": saved_files, "canvas_files": canvas_files}
+            log_export_completed_once(email, total_photos, seconds_per_photo)
+            export_signature = st.session_state.get("fullres_export_signature", current_signature)
+            st.session_state.export_results = export_results
+            st.session_state.export_signature = export_signature
 
-        export_results = {
-            "saved_files": saved_files,
-            "canvas_files": canvas_files,
-        }
-
-        current_batch_id = st.session_state.get("current_batch_id")
-        counted_export_batch_ids = list(st.session_state.get("counted_export_batch_ids", []))
-
-        if current_batch_id not in counted_export_batch_ids:
-            minutes_saved = calculate_minutes_saved(
-                st.session_state.get("last_photos_processed", results["total"]),
-                seconds_per_photo,
-            )
-            log_google_form_event(
-                "export_completed",
-                email=email,
-                photos_processed=st.session_state.get("last_photos_processed", results["total"]),
-                exports=1,
-                minutes_saved=minutes_saved,
-            )
-            counted_export_batch_ids.append(current_batch_id)
-            st.session_state.counted_export_batch_ids = counted_export_batch_ids
-
-        st.session_state.export_results = export_results
-        st.session_state.export_signature = current_signature
-        export_signature = current_signature
-        st.success("Checked photos exported.")
+            failed = result.get("failed") or []
+            if failed:
+                st.warning(
+                    f"{len(failed)} photo(s) couldn't upload at full resolution and are "
+                    "preview-quality in the ZIP. Re-export to retry, or use the keeper list "
+                    "to grab those originals from your own files."
+                )
+            st.success("Full-resolution ZIP ready.")
+            st.session_state.pop("fullres_request", None)
+            st.session_state.pop("fullres_result", None)
 
     if export_results and export_signature == current_signature:
         if canvas_settings.create_exports and export_results["canvas_files"]:
@@ -2500,6 +2784,186 @@ def main() -> None:
 
     elif export_results:
         st.info("Your manual selection changed. Export checked photos again to refresh the ZIP files.")
+
+
+def render_canvas_workspace(email: str) -> None:
+    if st.button("← Back to tools"):
+        st.session_state["view"] = "choose"
+        st.rerun()
+
+    render_compact_brand()
+    render_live_stats()
+
+    st.sidebar.markdown("## Canvas Studio")
+    st.sidebar.caption("Turn your picks into clean, ready-to-post Instagram canvas versions.")
+    ratio_label = st.sidebar.selectbox(
+        "Post size",
+        list(CANVAS_RATIOS.keys()),
+        index=0,
+        help="3:4 fills the most feed space for a single image; 4:5 is the classic "
+        "portrait post; 1:1 is a square.",
+    )
+    canvas_width, canvas_height = CANVAS_RATIOS[ratio_label]
+    padding = st.sidebar.slider(
+        "White border (padding)",
+        0,
+        100,
+        20,
+        5,
+        help="How much white space to leave around each photo. "
+        "Gec Shots recommends 20.",
+    )
+    st.sidebar.caption("✨ Gec Shots recommends a padding of 20.")
+
+    if r2_enabled():
+        st.sidebar.success("Cloudflare R2 storage enabled.")
+    else:
+        st.sidebar.info("Using local temporary storage.")
+
+    use_fast_uploader = r2_enabled() and get_fast_uploader_component() is not None
+    if use_fast_uploader:
+        assume_cors = os.getenv("CLUTCHCULL_ASSUME_CORS", "").strip() == "1"
+        if not assume_cors and not ensure_r2_cors():
+            use_fast_uploader = False
+
+    render_section_header(
+        "Instagram Canvas",
+        "Create ready-to-post canvas versions",
+        f"Each photo is centered on a clean white {ratio_label} canvas, sized exactly "
+        "for Instagram. Upload your picks, then download them all as a ZIP.",
+    )
+
+    uploaded_files = None
+    fast_upload_result = None
+    upload_card = st.container(border=True)
+    with upload_card:
+        if use_fast_uploader:
+            # raw_upload: send full-resolution originals so canvases are built
+            # from uncompressed source, not the 1800px analysis preview.
+            fast_upload_result = render_fast_uploader(raw_upload=True)
+        else:
+            st.markdown(
+                """
+                <div class="clutch-upload-card">
+                    <h3 class="clutch-upload-title">Drop your photos here</h3>
+                    <p class="clutch-upload-copy">
+                        These become white-canvas posts ready for Instagram.
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            uploaded_files = st.file_uploader(
+                "Upload photos to place on a canvas",
+                type=["jpg", "jpeg", "png", "webp"],
+                accept_multiple_files=True,
+                key="canvas_file_uploader",
+            )
+
+    uploaded_names: list[str] = []
+    if use_fast_uploader:
+        if fast_upload_result is None:
+            st.info("Add photos to create Instagram canvas posts.")
+            return
+        uploaded_names = [
+            Path(name).name for name in fast_upload_result.get("uploaded", [])
+        ]
+        if not uploaded_names:
+            st.warning("The upload didn't complete. Check your connection and try again.")
+            return
+    else:
+        if not uploaded_files:
+            st.info("Add photos to create Instagram canvas posts.")
+            return
+        st.write(f"{len(uploaded_files)} photo(s) ready.")
+
+    if st.button("Create Canvas Posts", type="primary"):
+        with st.spinner(f"Building {ratio_label} canvas posts..."):
+            if use_fast_uploader:
+                r2_prefix = st.session_state.get("fast_upload_prefix", "")
+                fetch_previews_from_r2(uploaded_names, r2_prefix)
+            else:
+                r2_prefix = f"uploads/{get_session_id()}/{get_next_batch_id()}/"
+                save_uploaded_files(uploaded_files, r2_prefix)
+
+            clear_output_folder(CANVAS_DIR)
+            image_files = get_image_files(INPUT_DIR)
+            canvas_files: list[Path] = []
+            for index, image_path in enumerate(image_files, start=1):
+                destination = CANVAS_DIR / f"{index:02d}_canvas.jpg"
+                create_white_canvas(
+                    image_path, destination, canvas_width, canvas_height, padding
+                )
+                canvas_files.append(destination)
+
+        st.session_state.canvas_output_files = [str(path) for path in canvas_files]
+        log_google_form_event(
+            "canvas_created",
+            email=email,
+            photos_processed=len(canvas_files),
+            exports=1,
+        )
+        st.success(f"Created {len(canvas_files)} canvas post(s).")
+
+    canvas_files = [Path(path) for path in st.session_state.get("canvas_output_files", [])]
+    canvas_files = [path for path in canvas_files if path.exists()]
+
+    if not canvas_files:
+        return
+
+    render_section_header(
+        "Preview",
+        "Your canvas posts",
+        f"Showing up to {UI_PREVIEW_LIMIT} previews. Every canvas is included in the ZIP.",
+    )
+    columns = st.columns(3)
+    for index, image_path in enumerate(canvas_files[:UI_PREVIEW_LIMIT]):
+        with columns[index % 3]:
+            preview = load_display_preview(image_path)
+            st.image(
+                preview if preview is not None else str(image_path),
+                caption=image_path.name,
+                use_container_width=True,
+            )
+    if len(canvas_files) > UI_PREVIEW_LIMIT:
+        st.caption(
+            f"{len(canvas_files) - UI_PREVIEW_LIMIT} more canvas previews are hidden, "
+            "but still included in the ZIP."
+        )
+
+    canvas_zip = make_zip(CANVAS_DIR, "instagram_canvas_posts.zip")
+    with open(canvas_zip, "rb") as zip_handle:
+        st.download_button(
+            "Download All Canvas Posts (ZIP)",
+            data=zip_handle.read(),
+            file_name="instagram_canvas_posts.zip",
+            mime="application/zip",
+            type="primary",
+        )
+    remove_file_safely(canvas_zip)
+
+
+def main() -> None:
+    ensure_directories()
+
+    st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
+    inject_custom_css()
+
+    view = st.session_state.get("view", "landing")
+
+    if view == "landing":
+        render_landing_view()
+    elif view == "email":
+        render_email_gate()
+    elif view == "choose":
+        render_mode_choice()
+    elif view == "canvas":
+        render_canvas_workspace(st.session_state.get("user_email", ""))
+    elif view == "cull":
+        render_cull_workspace(st.session_state.get("user_email", ""))
+    else:
+        st.session_state["view"] = "landing"
+        render_landing_view()
 
 
 if __name__ == "__main__":

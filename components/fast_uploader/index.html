@@ -15,8 +15,8 @@
   }
   .drop-zone {
     border: 2px dashed rgba(94, 234, 212, 0.45);
-    border-radius: 14px;
-    padding: 28px 20px;
+    border-radius: 16px;
+    padding: 40px 24px;
     text-align: center;
     cursor: pointer;
     transition: border-color 0.15s ease, background 0.15s ease;
@@ -26,8 +26,8 @@
     border-color: #5eead4;
     background: rgba(94, 234, 212, 0.08);
   }
-  .drop-zone h3 { margin: 0 0 6px; font-size: 1.05rem; }
-  .drop-zone p { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+  .drop-zone h3 { margin: 0 0 8px; font-size: 1.4rem; }
+  .drop-zone p { margin: 0; font-size: 1rem; opacity: 0.8; line-height: 1.5; }
   .hidden { display: none !important; }
   .progress-wrap { margin-top: 14px; }
   .progress-track {
@@ -116,10 +116,14 @@
   var currentNonce = null;         // identifies the active selection
   var uploadStartedForNonce = null;
   var uploadDoneForNonce = null;
+  var fullresStartedNonce = null;  // full-res keeper upload (at export time)
+  var fullresDoneNonce = null;
 
   var MAX_DIM = 1800;
   var JPEG_QUALITY = 0.82;
+  var RAW_UPLOAD = false;          // canvas mode: PUT untouched originals
   var CONCURRENCY = 5;
+  var FULLRES_CONCURRENCY = 3;     // originals are large; fewer in flight
 
   var dropZone = document.getElementById("dropZone");
   var fileInput = document.getElementById("fileInput");
@@ -196,6 +200,11 @@
 
   // ---- Resize --------------------------------------------------------------
   function resizeFile(file) {
+    // Raw mode (canvas tool): never touch the bytes -- upload the untouched,
+    // full-resolution original so exports are built from the best source.
+    if (RAW_UPLOAD) {
+      return Promise.resolve(file);
+    }
     // Returns a Promise<Blob>. Falls back to the original bytes when the
     // browser can't decode the file (analysis still works server-side).
     return createImageBitmap(file, { imageOrientation: "from-image" })
@@ -250,7 +259,9 @@
     var sentBytes = 0;
     var queue = selectedFiles.slice();
 
-    progressText.textContent = "Optimizing + uploading…";
+    progressText.textContent = RAW_UPLOAD
+      ? "Uploading full-resolution photos…"
+      : "Optimizing + uploading…";
 
     function updateProgress() {
       completed += 1;
@@ -296,13 +307,19 @@
       progressText.textContent = "Upload complete";
       progressFill.style.width = "100%";
 
-      var savedPct = originalBytes > 0
-        ? Math.max(0, Math.round(100 - (sentBytes / originalBytes) * 100))
-        : 0;
-      doneBanner.textContent =
-        "✓ " + uploaded.length + " photos uploaded — " +
-        (originalBytes / 1048576).toFixed(0) + " MB optimized down to " +
-        (sentBytes / 1048576).toFixed(1) + " MB (" + savedPct + "% smaller).";
+      if (RAW_UPLOAD) {
+        doneBanner.textContent =
+          "✓ " + uploaded.length + " full-resolution photo(s) uploaded (" +
+          (sentBytes / 1048576).toFixed(0) + " MB).";
+      } else {
+        var savedPct = originalBytes > 0
+          ? Math.max(0, Math.round(100 - (sentBytes / originalBytes) * 100))
+          : 0;
+        doneBanner.textContent =
+          "✓ " + uploaded.length + " photos uploaded — " +
+          (originalBytes / 1048576).toFixed(0) + " MB optimized down to " +
+          (sentBytes / 1048576).toFixed(1) + " MB (" + savedPct + "% smaller).";
+      }
       doneBanner.classList.remove("hidden");
       resetLink.classList.remove("hidden");
 
@@ -325,6 +342,84 @@
     });
   }
 
+  // ---- Full-resolution keeper upload (triggered at export) ----------------
+  // Uploads the untouched originals of just the selected keepers, using the
+  // File objects still held in memory from the initial selection.
+  function startFullresUpload(urls, nonce) {
+    fullresStartedNonce = nonce;
+
+    var byName = {};
+    selectedFiles.forEach(function (f) { byName[f.name] = f; });
+
+    var names = Object.keys(urls);
+    var total = names.length;
+    var completed = 0;
+    var uploaded = [];
+    var failed = [];
+    var queue = names.slice();
+
+    doneBanner.classList.add("hidden");
+    resetLink.classList.add("hidden");
+    errorNote.classList.add("hidden");
+    progressWrap.classList.remove("hidden");
+    progressFill.style.width = "0%";
+    progressText.textContent = "Uploading full-resolution keepers…";
+    progressCount.textContent = "0 / " + total;
+    statsLine.textContent = "";
+    setFrameHeight();
+
+    function updateProgress() {
+      completed += 1;
+      progressFill.style.width = Math.round((completed / total) * 100) + "%";
+      progressCount.textContent = completed + " / " + total;
+    }
+
+    function worker() {
+      var name = queue.shift();
+      if (name === undefined) return Promise.resolve();
+      var file = byName[name];
+      var url = urls[name];
+      var task;
+      if (!file || !url) {
+        failed.push(name);
+        updateProgress();
+        task = Promise.resolve();
+      } else {
+        // Upload the original bytes untouched -- full resolution.
+        task = putWithRetry(url, file, 0)
+          .then(function () { uploaded.push(name); })
+          .catch(function () { failed.push(name); })
+          .then(updateProgress);
+      }
+      return task.then(worker);
+    }
+
+    var workers = [];
+    for (var i = 0; i < Math.min(FULLRES_CONCURRENCY, total); i++) workers.push(worker());
+
+    Promise.all(workers).then(function () {
+      fullresDoneNonce = nonce;
+      progressText.textContent = "Full-resolution upload complete";
+      progressFill.style.width = "100%";
+      doneBanner.textContent =
+        "✓ " + uploaded.length + " full-resolution keeper(s) ready for your ZIP.";
+      doneBanner.classList.remove("hidden");
+      if (failed.length) {
+        errorNote.textContent = failed.length + " keeper(s) couldn't upload at full res: " +
+          failed.slice(0, 5).join(", ") + (failed.length > 5 ? "…" : "");
+        errorNote.classList.remove("hidden");
+      }
+      setFrameHeight();
+
+      setComponentValue({
+        phase: "fullres_done",
+        nonce: nonce,
+        uploaded: uploaded,
+        failed: failed
+      });
+    });
+  }
+
   // ---- Render events from Streamlit ---------------------------------------
   window.addEventListener("message", function (event) {
     var msg = event.data;
@@ -333,6 +428,24 @@
     var args = (msg.args !== undefined ? msg.args : (msg.data && msg.data.args)) || {};
     if (typeof args.max_dim === "number" && args.max_dim > 0) MAX_DIM = args.max_dim;
     if (typeof args.quality === "number" && args.quality > 0) JPEG_QUALITY = args.quality;
+    if (typeof args.raw_upload === "boolean") {
+      RAW_UPLOAD = args.raw_upload;
+      // Originals are large -- upload fewer in parallel to avoid stalls.
+      CONCURRENCY = RAW_UPLOAD ? FULLRES_CONCURRENCY : 5;
+      // Keep the drop-zone copy honest for each mode.
+      var dzH3 = dropZone.querySelector("h3");
+      var dzP = dropZone.querySelector("p");
+      if (RAW_UPLOAD) {
+        if (dzH3) dzH3.textContent = "Drop your photos here";
+        if (dzP) dzP.textContent =
+          "Uploaded at full resolution for the sharpest possible canvas posts.";
+      } else {
+        if (dzH3) dzH3.textContent = "Drop your shoot here";
+        if (dzP) dzP.textContent =
+          "Photos are optimized in your browser and uploaded in parallel — up to " +
+          "50× faster. Your full-resolution originals never leave your computer.";
+      }
+    }
 
     var urls = args.urls;
     var urlsNonce = args.urls_nonce;
@@ -346,6 +459,17 @@
       selectedFiles.length
     ) {
       startUpload(urls, urlsNonce);
+    }
+
+    // Export-time request: upload full-res originals of the selected keepers.
+    var fullres = args.fullres;
+    if (
+      fullres && fullres.nonce && fullres.urls &&
+      fullres.nonce !== fullresStartedNonce &&
+      fullres.nonce !== fullresDoneNonce &&
+      selectedFiles.length
+    ) {
+      startFullresUpload(fullres.urls, fullres.nonce);
     }
     setFrameHeight();
   });
