@@ -117,6 +117,11 @@ CANVAS_RATIOS = {
     "1:1 — 1080 × 1080 (square)": (1080, 1080),
 }
 
+# Canvases render at up to this long-edge (2x Instagram's 1080/1440 display
+# size). Keeps the photo near its native resolution for crisp downsampling
+# while keeping file sizes reasonable. See create_white_canvas().
+CANVAS_MAX_LONG_EDGE = 2880
+
 
 @dataclass
 class CanvasSettings:
@@ -1741,6 +1746,8 @@ def remove_near_duplicates(
 
     duplicate_groups = list(duplicate_groups_by_keeper.values())
     return kept_candidates, duplicate_count, duplicate_groups
+
+
 def create_white_canvas(
     image_path: Path,
     output_path: Path,
@@ -1748,23 +1755,55 @@ def create_white_canvas(
     canvas_height: int,
     padding: int,
 ) -> None:
+    """Center a photo on a white canvas at the given aspect ratio.
+
+    The passed (canvas_width, canvas_height, padding) describe the *base*
+    Instagram size (e.g. 1080x1440). Rendering only at 1080px would downscale
+    a 4000-6000px original to roughly a third of its resolution -- visibly
+    soft. Instead we scale the whole canvas UP (same aspect ratio) so the photo
+    sits at close to its native resolution, capped at CANVAS_MAX_LONG_EDGE.
+    Instagram accepts the larger file and downsamples it cleanly, and the
+    output is genuinely high resolution for any other use too.
+    """
     with Image.open(image_path) as img:
         # Respect embedded EXIF orientation so portraits aren't rotated wrong.
         img = ImageOps.exif_transpose(img).convert("RGB")
+        source_width, source_height = img.size
 
-        max_width = canvas_width - (2 * padding)
-        max_height = canvas_height - (2 * padding)
-        # Downscale from the full-resolution source with LANCZOS for the
-        # sharpest fit; never upscale past the source (avoids softening).
-        img.thumbnail((max_width, max_height), RESAMPLING.LANCZOS)
+        # Photo area at the base canvas size.
+        base_area_width = max(1, canvas_width - (2 * padding))
+        base_area_height = max(1, canvas_height - (2 * padding))
 
-        canvas = Image.new("RGB", (canvas_width, canvas_height), "white")
-        x = (canvas_width - img.width) // 2
-        y = (canvas_height - img.height) // 2
+        # How much the photo is scaled to fit at the base size. < 1 means the
+        # original is being shrunk -- so scale the canvas up by the inverse to
+        # recover that lost resolution, capped by the long-edge ceiling.
+        base_fit = min(
+            base_area_width / source_width,
+            base_area_height / source_height,
+        )
+        scale = 1.0 / base_fit if base_fit < 1 else 1.0
+        long_edge = max(canvas_width, canvas_height) * scale
+        if long_edge > CANVAS_MAX_LONG_EDGE:
+            scale *= CANVAS_MAX_LONG_EDGE / long_edge
+        scale = max(scale, 1.0)
 
+        out_width = round(canvas_width * scale)
+        out_height = round(canvas_height * scale)
+        out_padding = round(padding * scale)
+
+        area_width = max(1, out_width - (2 * out_padding))
+        area_height = max(1, out_height - (2 * out_padding))
+        # thumbnail() only ever downscales, so a smaller-than-target source is
+        # never upscaled (which would just soften it).
+        img.thumbnail((area_width, area_height), RESAMPLING.LANCZOS)
+
+        canvas = Image.new("RGB", (out_width, out_height), "white")
+        x = (out_width - img.width) // 2
+        y = (out_height - img.height) // 2
         canvas.paste(img, (x, y))
-        # Max-quality JPEG: quality 98, no chroma subsampling (4:4:4), and
-        # keep 4:4:4 so fine edges/text stay crisp for Instagram.
+
+        # Max-quality JPEG: quality 98, no chroma subsampling (4:4:4) so fine
+        # edges and text stay crisp.
         canvas.save(
             output_path,
             quality=98,
