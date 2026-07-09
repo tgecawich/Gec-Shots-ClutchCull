@@ -2291,8 +2291,8 @@ def render_landing_view() -> None:
     render_landing_hero()
     render_live_stats()
 
-    if st.button("Get Started", type="primary"):
-        st.session_state["view"] = "email"
+    if st.button("Get Started — it's free", type="primary"):
+        st.session_state["view"] = "choose"
         st.rerun()
 
     render_section_header(
@@ -2311,42 +2311,6 @@ def render_compact_brand() -> None:
         '<div class="clutch-byline" style="text-align:center;">by Gec Shots</div>',
         unsafe_allow_html=True,
     )
-
-
-def render_email_gate() -> None:
-    render_hide_sidebar_css()
-    render_compact_brand()
-    render_live_stats()
-    render_section_header(
-        "Welcome",
-        "Enter your email to continue",
-        "Used only to power the usage & impact dashboard above — nothing else. "
-        "No spam, never shared, and never used for anything but tracking overall impact.",
-    )
-
-    with st.container(border=True):
-        email_input = st.text_input(
-            "Email",
-            value=st.session_state.get("user_email", ""),
-            placeholder="you@example.com",
-        )
-        continue_col, skip_col = st.columns([2, 1])
-        with continue_col:
-            if st.button("Continue", type="primary", use_container_width=True):
-                st.session_state.user_email = normalize_email(email_input)
-                log_session_start_once(st.session_state.user_email)
-                st.session_state["view"] = "choose"
-                st.rerun()
-        with skip_col:
-            if st.button("Skip for now", use_container_width=True):
-                st.session_state.user_email = ""
-                log_session_start_once("")
-                st.session_state["view"] = "choose"
-                st.rerun()
-
-    if st.button("← Back to home"):
-        st.session_state["view"] = "landing"
-        st.rerun()
 
 
 def render_mode_choice() -> None:
@@ -2395,8 +2359,35 @@ def render_mode_choice() -> None:
             st.rerun()
 
     if st.button("← Back"):
-        st.session_state["view"] = "email"
+        st.session_state["view"] = "landing"
         st.rerun()
+
+
+def render_impact_email_capture() -> None:
+    """Optional, post-export email ask. Shown only after the user has a result,
+    so we never gate value behind an email. Purely for the impact dashboard.
+    """
+    if st.session_state.get("impact_email_saved"):
+        return
+    with st.container(border=True):
+        st.markdown("#### 📊 Add your shoot to the Impact Dashboard (optional)")
+        st.caption(
+            "Enter your email to be counted in the community impact stats. "
+            "That's the only use — no spam, never shared."
+        )
+        email_input = st.text_input(
+            "Email (optional)",
+            value=st.session_state.get("user_email", ""),
+            placeholder="you@example.com",
+            key="impact_email_input",
+        )
+        if st.button("Add to Impact Dashboard"):
+            st.session_state.user_email = normalize_email(email_input)
+            st.session_state.impact_email_saved = True
+            if st.session_state.user_email:
+                log_google_form_event("email_provided", email=st.session_state.user_email)
+                st.success("Thanks — you're counted in the impact stats. 🙌")
+            st.rerun()
 
 
 def render_cull_workspace(email: str) -> None:
@@ -2405,58 +2396,46 @@ def render_cull_workspace(email: str) -> None:
         st.rerun()
 
     render_compact_brand()
-    render_live_stats()
+    log_session_start_once(email)
 
-    st.sidebar.markdown("## ClutchCull Control Room")
-    st.sidebar.caption("Tune the culling engine for the type of shoot you are sorting.")
-    st.sidebar.markdown("### Culling Engine")
+    st.sidebar.markdown("## Culling settings")
     scoring_preset = st.sidebar.selectbox(
-        "Scoring Preset",
+        "What kind of shoot is this?",
         list(SCORING_PRESETS.keys()),
         index=list(SCORING_PRESETS.keys()).index("Balanced"),
-        help="Choose how ClutchCull weighs sharpness, detail, contrast, and exposure.",
-    )
-    blur_threshold = st.sidebar.slider(
-        "Blur Threshold",
-        0.0,
-        100.0,
-        40.0,
-        1.0,
-        help="Higher values are stricter and remove more soft images.",
-    )
-    duplicate_threshold = st.sidebar.slider(
-        "Duplicate Threshold",
-        0,
-        10,
-        2,
-        1,
-        help="Higher values remove more near-identical frames.",
+        help="Sets smart defaults for how ClutchCull picks your best shots.",
     )
     top_n = st.sidebar.slider(
-        "Number of Final Photos",
+        "How many keepers do you want?",
         1,
         100,
         35,
         1,
-        help="Maximum number of auto-ranked photos to send into final review.",
-    )
-    seconds_per_photo = st.sidebar.slider(
-        "Manual review seconds per photo",
-        0,
-        20,
-        15,
-        1,
-        help="Used only for the estimated time-saved impact metric.",
+        help="The most photos ClutchCull will shortlist for your final review.",
     )
 
-    st.sidebar.caption(
-        "Tip: for sports bursts, keep duplicate removal moderate so you can compare key moments."
-    )
-    st.sidebar.caption(
-        "Want Instagram-ready canvas versions? Head back to tools and pick the "
-        "Instagram Canvas mode."
-    )
+    # Advanced tuning is collapsed by default so first-timers aren't overwhelmed.
+    # Good defaults mean most people never need to open this.
+    with st.sidebar.expander("⚙️ Advanced settings"):
+        blur_threshold = st.slider(
+            "How strict on sharpness?",
+            0.0,
+            100.0,
+            40.0,
+            1.0,
+            help="Higher = pickier. Removes more soft/blurry shots.",
+        )
+        duplicate_threshold = st.slider(
+            "How aggressively to remove near-duplicates?",
+            0,
+            10,
+            2,
+            1,
+            help="Higher = removes more near-identical burst frames.",
+        )
 
+    # Fixed metric input (drives the 'hours saved' stat only, not the cull).
+    seconds_per_photo = 15
     # Canvas exports live in their own mode now; culling never builds canvases.
     create_canvas_exports = False
     canvas_width, canvas_height, padding = 1080, 1350, 80
@@ -2487,6 +2466,10 @@ def render_cull_workspace(email: str) -> None:
         "Your full-resolution originals stay on your computer."
         if use_fast_uploader
         else "Upload the full batch. ClutchCull analyzes optimized previews while preserving originals for export.",
+    )
+    st.success(
+        "🔒 Your original photos are never changed or deleted. ClutchCull only "
+        "builds a shortlist of your best shots that you choose what to export."
     )
 
     uploaded_files = None
@@ -2605,22 +2588,19 @@ def render_cull_workspace(email: str) -> None:
         return
 
     render_section_header(
-        "Ranking",
-        "Why these shots were selected",
-        "The table keeps the decision-making transparent: score, sharpness, detail, contrast, brightness, and the selection reason.",
-    )
-    st.write(
-        f"Final ranking uses the {results['scoring_preset']} preset after blur "
-        "filtering and duplicate removal."
-    )
-    render_selected_table(effective_candidates)
-
-    render_section_header(
         "Shortlist",
-        "Top Picks",
-        "A fast visual pass over the highest-ranked frames before you make final calls.",
+        "Your Top Picks",
+        "Here are the strongest shots ClutchCull surfaced from your batch. "
+        "Scroll down to fine-tune your selection and export.",
     )
     render_image_grid(effective_candidates)
+
+    with st.expander("📊 See the scores behind these picks (optional)"):
+        st.caption(
+            "Higher score = a stronger keeper, sorted best-first. Ranking uses the "
+            f"{results['scoring_preset']} preset after removing blurry and duplicate frames."
+        )
+        render_selected_table(effective_candidates)
 
     effective_candidates = render_compare_similar_photos(
         results["selected_candidates"],
@@ -2781,6 +2761,7 @@ def render_cull_workspace(email: str) -> None:
                 )
 
         render_downloads(export_results, canvas_settings.create_exports)
+        render_impact_email_capture()
 
     elif export_results:
         st.info("Your manual selection changed. Export checked photos again to refresh the ZIP files.")
@@ -2792,7 +2773,7 @@ def render_canvas_workspace(email: str) -> None:
         st.rerun()
 
     render_compact_brand()
-    render_live_stats()
+    log_session_start_once(email)
 
     st.sidebar.markdown("## Canvas Studio")
     st.sidebar.caption("Turn your picks into clean, ready-to-post Instagram canvas versions.")
@@ -2942,6 +2923,8 @@ def render_canvas_workspace(email: str) -> None:
         )
     remove_file_safely(canvas_zip)
 
+    render_impact_email_capture()
+
 
 def main() -> None:
     ensure_directories()
@@ -2953,8 +2936,6 @@ def main() -> None:
 
     if view == "landing":
         render_landing_view()
-    elif view == "email":
-        render_email_gate()
     elif view == "choose":
         render_mode_choice()
     elif view == "canvas":
