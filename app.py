@@ -2525,26 +2525,23 @@ def render_cull_workspace(email: str) -> None:
         1,
         help="The most photos ClutchCull will shortlist for your final review.",
     )
-
-    # Advanced tuning is collapsed by default so first-timers aren't overwhelmed.
-    # Good defaults mean most people never need to open this.
-    with st.sidebar.expander("⚙️ Advanced settings"):
-        blur_threshold = st.slider(
-            "How strict on sharpness?",
-            0.0,
-            100.0,
-            40.0,
-            1.0,
-            help="Higher = pickier. Removes more soft/blurry shots.",
-        )
-        duplicate_threshold = st.slider(
-            "How aggressively to remove near-duplicates?",
-            0,
-            10,
-            2,
-            1,
-            help="Higher = removes more near-identical burst frames.",
-        )
+    blur_threshold = st.sidebar.slider(
+        "How strict on sharpness?",
+        0.0,
+        100.0,
+        40.0,
+        1.0,
+        help="Higher = pickier. Removes more soft/blurry shots.",
+    )
+    duplicate_threshold = st.sidebar.slider(
+        "How aggressively to remove near-duplicates?",
+        0,
+        10,
+        2,
+        1,
+        help="Higher = removes more near-identical burst frames.",
+    )
+    st.sidebar.caption("All defaults are tuned by Gec Shots — adjust any time.")
 
     # Fixed metric input (drives the 'hours saved' stat only, not the cull).
     seconds_per_photo = 15
@@ -3053,7 +3050,11 @@ def render_canvas_workspace(email: str) -> None:
 def main() -> None:
     ensure_directories()
 
-    st.set_page_config(page_title="Gec Shots ClutchCull", layout="wide")
+    st.set_page_config(
+        page_title="Gec Shots ClutchCull",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     inject_custom_css()
 
     view = st.session_state.get("view", "landing")
