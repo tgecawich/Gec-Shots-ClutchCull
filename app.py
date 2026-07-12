@@ -708,11 +708,12 @@ def render_hero() -> None:
                 <div class="clutch-logo">Clutch<span>Cull</span></div>
                 <h1 class="clutch-headline">Find your best shots in minutes, not hours</h1>
                 <p class="clutch-subheadline">
-                    Upload a full shoot and ClutchCull automatically flags blurry frames, removes
-                    near-duplicates, and ranks your sharpest action shots — your originals stay untouched.
+                    Upload a full shoot and ClutchCull uses AI subject detection to lock onto the
+                    athlete, flag blurry frames, remove near-duplicates, and rank your sharpest
+                    shots — your originals stay untouched.
                 </p>
                 <div class="clutch-pills">
-                    <span class="clutch-pill">100% free</span>
+                    <span class="clutch-pill">AI subject detection</span>
                     <span class="clutch-pill">Built for sports</span>
                     <span class="clutch-pill">Photos stay private</span>
                 </div>
@@ -733,14 +734,14 @@ def render_landing_hero() -> None:
                 <div class="clutch-byline">by Gec Shots</div>
                 <h1 class="clutch-headline">Find your best shots in minutes, not hours.</h1>
                 <p class="clutch-subheadline">
-                    Shot hundreds of frames at the game? ClutchCull automatically skips the blurry
-                    ones and duplicates and surfaces your sharpest keepers — so you're done fast.
-                    Built from the sideline by Gec Shots.
+                    Shot hundreds of frames at the game? ClutchCull uses AI subject detection to
+                    lock onto the athlete, skip the blurry frames and duplicates, and surface your
+                    sharpest keepers — so you're done fast. Built from the sideline by Gec Shots.
                 </p>
                 <div class="clutch-pills">
                     <span class="clutch-pill">100% free</span>
+                    <span class="clutch-pill">AI subject detection</span>
                     <span class="clutch-pill">Photos stay private</span>
-                    <span class="clutch-pill">Built from the sideline</span>
                 </div>
             </div>
         </section>
@@ -2841,8 +2842,9 @@ def render_mode_choice() -> None:
             <div class="clutch-upload-card">
                 <h3 class="clutch-upload-title">🏟️ Cull my photos</h3>
                 <p class="clutch-upload-copy">
-                    Upload a full shoot and let ClutchCull remove blurry frames and
-                    near-duplicates, then rank the strongest shots into a keeper shortlist.
+                    Upload a full shoot. AI subject detection locks onto the athlete, removes
+                    blurry frames and near-duplicates, and ranks the strongest shots into a
+                    keeper shortlist.
                 </p>
             </div>
             """,
