@@ -696,17 +696,17 @@ def render_hero() -> None:
         """
         <section class="clutch-hero">
             <div class="clutch-hero-content">
-                <div class="clutch-kicker">Creator-tech culling suite</div>
+                <div class="clutch-kicker">Sports photo culling tool</div>
                 <div class="clutch-logo">Clutch<span>Cull</span></div>
-                <h1 class="clutch-headline">AI photo culling for sports photographers</h1>
+                <h1 class="clutch-headline">Find your best shots in minutes, not hours</h1>
                 <p class="clutch-subheadline">
-                    Upload a full shoot, cut blurry frames, remove near-duplicates, and rank the best
-                    action shots while preserving your original files for clean export.
+                    Upload a full shoot and ClutchCull automatically flags blurry frames, removes
+                    near-duplicates, and ranks your sharpest action shots — your originals stay untouched.
                 </p>
                 <div class="clutch-pills">
-                    <span class="clutch-pill">AI-powered</span>
+                    <span class="clutch-pill">100% free</span>
                     <span class="clutch-pill">Built for sports</span>
-                    <span class="clutch-pill">Fast workflow</span>
+                    <span class="clutch-pill">Photos stay private</span>
                 </div>
             </div>
         </section>
@@ -723,15 +723,16 @@ def render_landing_hero() -> None:
                 <div class="clutch-kicker">Sports photography workflow</div>
                 <div class="clutch-logo">Clutch<span>Cull</span></div>
                 <div class="clutch-byline">by Gec Shots</div>
-                <h1 class="clutch-headline">Cull game-day shoots in minutes, not hours.</h1>
+                <h1 class="clutch-headline">Find your best shots in minutes, not hours.</h1>
                 <p class="clutch-subheadline">
-                    Built by Gec Shots for sports photographers who come home with hundreds of frames,
-                    near-duplicates, blurry shots, and almost-moments.
+                    Shot hundreds of frames at the game? ClutchCull automatically skips the blurry
+                    ones and duplicates and surfaces your sharpest keepers — so you're done fast.
+                    Built from the sideline by Gec Shots.
                 </p>
                 <div class="clutch-pills">
-                    <span class="clutch-pill">AI-powered</span>
+                    <span class="clutch-pill">100% free</span>
+                    <span class="clutch-pill">Photos stay private</span>
                     <span class="clutch-pill">Built from the sideline</span>
-                    <span class="clutch-pill">Export-ready picks</span>
                 </div>
             </div>
         </section>
@@ -2618,6 +2619,21 @@ def is_mobile_device() -> bool:
 
 @st.dialog("💻 Best on a computer")
 def show_desktop_notice_dialog() -> None:
+    # On mobile the dialog can open above the current scroll position, leaving
+    # the user staring at the dimmed page. Scroll the app to the top so the
+    # popup is immediately in view.
+    components.html(
+        """
+        <script>
+          (function () {
+            try { window.parent.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+            try { window.parent.document.querySelector('[role=dialog]')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+          })();
+        </script>
+        """,
+        height=0,
+    )
     st.markdown(
         "**ClutchCull is strongest on a laptop or desktop.** That's where you can "
         "upload a full shoot and cull hundreds of photos fast — mobile browsers "
@@ -2872,8 +2888,9 @@ def render_cull_workspace(email: str) -> None:
         else "Upload the full batch. ClutchCull analyzes optimized previews while preserving originals for export.",
     )
     st.success(
-        "🔒 Your original photos are never changed or deleted. ClutchCull only "
-        "builds a shortlist of your best shots that you choose what to export."
+        "🔒 **Your photos are safe.** Your full-resolution originals stay on your computer, "
+        "uploaded previews are temporary and cleared automatically, and nothing is ever sold, "
+        "shared, or used to train anything. ClutchCull only builds a shortlist you choose to export."
     )
 
     uploaded_files = None
