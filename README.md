@@ -1,5 +1,5 @@
 ---
-title: ClutchCull
+title: ClutchCull — Free AI Photo Culling for Sports Photographers
 emoji: 📸
 colorFrom: purple
 colorTo: red
@@ -7,6 +7,11 @@ sdk: streamlit
 sdk_version: 1.57.0
 app_file: app.py
 pinned: false
+short_description: Free AI photo culling for sports photographers by Gec Shots
+tags:
+  - photo-culling
+  - sports-photography
+  - photography-tools
 ---
 
 # ClutchCull
