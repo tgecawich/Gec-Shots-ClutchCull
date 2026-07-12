@@ -1565,13 +1565,48 @@ def _metrics_cache_key(image_path: Path) -> tuple[str, float]:
 # is missing or errors, we fall back to a center-weighted subject region and
 # the previous behavior, so culling never breaks.
 YUNET_MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+YUNET_MODEL_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/models/"
+    "face_detection_yunet/face_detection_yunet_2023mar.onnx"
+)
 _face_detector_local = threading.local()
+_yunet_download_lock = threading.Lock()
+_yunet_download_attempted = False
+
+
+def ensure_yunet_model() -> bool:
+    """Make the face model available locally, downloading it once if needed.
+
+    The model is fetched at runtime (not committed) so the repo stays free of
+    binary files (Hugging Face rejects them). Best-effort: any failure just
+    disables face scoring and culling falls back to center-weighted subject
+    sharpness.
+    """
+    global _yunet_download_attempted
+    if YUNET_MODEL_PATH.exists():
+        return True
+    if requests is None:
+        return False
+    with _yunet_download_lock:
+        if YUNET_MODEL_PATH.exists():
+            return True
+        if _yunet_download_attempted:
+            return False
+        _yunet_download_attempted = True
+        try:
+            YUNET_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            response = requests.get(YUNET_MODEL_URL, timeout=20)
+            response.raise_for_status()
+            YUNET_MODEL_PATH.write_bytes(response.content)
+            return True
+        except Exception:
+            return False
 
 
 def _get_face_detector():
     detector = getattr(_face_detector_local, "detector", None)
     if detector is None:
-        if not YUNET_MODEL_PATH.exists() or not hasattr(cv2, "FaceDetectorYN"):
+        if not ensure_yunet_model() or not hasattr(cv2, "FaceDetectorYN"):
             _face_detector_local.detector = False
             return None
         try:
