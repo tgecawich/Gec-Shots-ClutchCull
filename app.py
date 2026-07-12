@@ -83,30 +83,36 @@ GOOGLE_FORM_FIELDS = {
 }
 GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv"
 
+# "sharpness" now scores the SUBJECT region (face/person or center), not the
+# whole frame; "faces" rewards a clear, well-framed subject. Weights sum ~1.
 SCORING_PRESETS = {
     "Sports Action": {
-        "sharpness": 0.6,
-        "detail": 0.25,
-        "contrast": 0.1,
+        "sharpness": 0.50,
+        "faces": 0.17,
+        "detail": 0.20,
+        "contrast": 0.08,
         "exposure": 0.05,
     },
     "Portraits": {
         "sharpness": 0.25,
-        "detail": 0.15,
-        "contrast": 0.3,
-        "exposure": 0.3,
+        "faces": 0.30,
+        "detail": 0.10,
+        "contrast": 0.15,
+        "exposure": 0.20,
     },
     "Events": {
         "sharpness": 0.35,
-        "detail": 0.2,
-        "contrast": 0.2,
-        "exposure": 0.25,
+        "faces": 0.22,
+        "detail": 0.15,
+        "contrast": 0.13,
+        "exposure": 0.15,
     },
     "Balanced": {
-        "sharpness": 0.55,
-        "detail": 0.2,
-        "contrast": 0.15,
-        "exposure": 0.1,
+        "sharpness": 0.45,
+        "faces": 0.17,
+        "detail": 0.18,
+        "contrast": 0.10,
+        "exposure": 0.10,
     },
 }
 
@@ -151,6 +157,8 @@ class PhotoCandidate:
     brightness_mean: float
     exposure_balance: float
     perceptual_hash: imagehash.ImageHash
+    subject_sharpness: float = 0.0
+    face_score: float = 0.0
     r2_key: str = ""
     score: float = 0.0
     score_breakdown: dict[str, float] = field(default_factory=dict)
@@ -1533,6 +1541,8 @@ _METRIC_FIELDS = (
     "brightness_mean",
     "exposure_balance",
     "perceptual_hash",
+    "subject_sharpness",
+    "face_score",
 )
 
 
@@ -1546,6 +1556,88 @@ def _metrics_cache_key(image_path: Path) -> tuple[str, float]:
     except OSError:
         mtime = -1.0
     return (str(image_path), mtime)
+
+
+# --- Subject-aware scoring (Tier 1): a real face-detection model (OpenCV
+# YuNet, a small trained CNN) locates the athlete so we can score whether the
+# SUBJECT is sharp -- not just the whole frame. A tack-sharp background behind
+# a blurry player no longer wins. Everything degrades gracefully: if the model
+# is missing or errors, we fall back to a center-weighted subject region and
+# the previous behavior, so culling never breaks.
+YUNET_MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
+_face_detector_local = threading.local()
+
+
+def _get_face_detector():
+    detector = getattr(_face_detector_local, "detector", None)
+    if detector is None:
+        if not YUNET_MODEL_PATH.exists() or not hasattr(cv2, "FaceDetectorYN"):
+            _face_detector_local.detector = False
+            return None
+        try:
+            _face_detector_local.detector = cv2.FaceDetectorYN.create(
+                str(YUNET_MODEL_PATH), "", (320, 320), 0.6, 0.3, 5000
+            )
+        except Exception:
+            _face_detector_local.detector = False
+    return _face_detector_local.detector or None
+
+
+def detect_faces(bgr_image) -> list[tuple[float, float, float, float, float]]:
+    detector = _get_face_detector()
+    if detector is None:
+        return []
+    try:
+        h, w = bgr_image.shape[:2]
+        detector.setInputSize((w, h))
+        _, faces = detector.detect(bgr_image)
+        if faces is None:
+            return []
+        return [
+            (float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[-1]))
+            for f in faces
+        ]
+    except Exception:
+        return []
+
+
+def compute_subject_metrics(gray, faces, img_w: int, img_h: int) -> tuple[float, float]:
+    """Return (subject_sharpness, face_score).
+
+    subject_sharpness = Laplacian variance measured on the main subject region
+    (the most prominent central face expanded to include head+shoulders, or a
+    center crop when no face is found). face_score in [0,1] rewards a clear,
+    prominently-framed subject (bigger, more central, higher-confidence face).
+    """
+    if faces:
+        cx, cy = img_w / 2.0, img_h / 2.0
+        max_dist = (cx ** 2 + cy ** 2) ** 0.5 or 1.0
+
+        def priority(face):
+            x, y, fw, fh, conf = face
+            fcx, fcy = x + fw / 2.0, y + fh / 2.0
+            centrality = 1.0 - min(1.0, ((fcx - cx) ** 2 + (fcy - cy) ** 2) ** 0.5 / max_dist)
+            return (fw * fh) * (0.5 + 0.5 * centrality) * conf
+
+        x, y, fw, fh, conf = max(faces, key=priority)
+        x0 = int(max(0, x - fw * 0.6))
+        y0 = int(max(0, y - fh * 0.5))
+        x1 = int(min(img_w, x + fw + fw * 0.6))
+        y1 = int(min(img_h, y + fh + fh * 1.4))
+        # Prominence: a face ~22% of the frame width scores ~1.0.
+        face_score = min(1.0, (fw / (0.22 * img_w)) if img_w else 0.0) * conf
+    else:
+        margin_w, margin_h = int(img_w * 0.225), int(img_h * 0.225)
+        x0, y0 = margin_w, margin_h
+        x1, y1 = img_w - margin_w, img_h - margin_h
+        face_score = 0.0
+
+    crop = gray[y0:y1, x0:x1]
+    if crop.size == 0:
+        subject_sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    else:
+        subject_sharpness = float(cv2.Laplacian(crop, cv2.CV_64F).var())
+    return subject_sharpness, face_score
 
 
 def compute_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate | None:
@@ -1570,6 +1662,13 @@ def compute_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate 
         exposure_balance = max(0.0, 1.0 - abs(brightness_mean - 127.5) / 127.5)
         perceptual_hash = imagehash.phash(preview)
 
+        # Subject-aware pass: locate the athlete and score subject sharpness.
+        bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+        faces = detect_faces(bgr_array)
+        subject_sharpness, face_score = compute_subject_metrics(
+            gray, faces, gray.shape[1], gray.shape[0]
+        )
+
         return PhotoCandidate(
             path=image_path,
             sharpness=sharpness,
@@ -1578,6 +1677,8 @@ def compute_image_metrics(image_path: Path, r2_key: str = "") -> PhotoCandidate 
             brightness_mean=brightness_mean,
             exposure_balance=exposure_balance,
             perceptual_hash=perceptual_hash,
+            subject_sharpness=subject_sharpness,
+            face_score=face_score,
             r2_key=r2_key,
         )
     except Exception:
@@ -1634,23 +1735,31 @@ def add_quality_scores(
         for metric, weight in weights.items()
     }
 
-    sharpness_scores = normalize_metric([candidate.sharpness for candidate in candidates])
+    # "sharpness" scores the SUBJECT region (subject_sharpness), so a photo with
+    # a blurry subject can't win on a sharp background.
+    sharpness_scores = normalize_metric([candidate.subject_sharpness for candidate in candidates])
     detail_scores = normalize_metric([candidate.detail_ratio for candidate in candidates])
     contrast_scores = normalize_metric([candidate.contrast for candidate in candidates])
     exposure_scores = [candidate.exposure_balance for candidate in candidates]
+    face_scores = [min(1.0, max(0.0, candidate.face_score)) for candidate in candidates]
+
+    def weight(metric: str) -> float:
+        return normalized_weights.get(metric, 0.0)
 
     for index, candidate in enumerate(candidates):
         candidate.score_breakdown = {
             "sharpness": sharpness_scores[index],
+            "faces": face_scores[index],
             "detail": detail_scores[index],
             "contrast": contrast_scores[index],
             "exposure": exposure_scores[index],
         }
         candidate.score = 100 * (
-            normalized_weights["sharpness"] * sharpness_scores[index]
-            + normalized_weights["detail"] * detail_scores[index]
-            + normalized_weights["contrast"] * contrast_scores[index]
-            + normalized_weights["exposure"] * exposure_scores[index]
+            weight("sharpness") * sharpness_scores[index]
+            + weight("faces") * face_scores[index]
+            + weight("detail") * detail_scores[index]
+            + weight("contrast") * contrast_scores[index]
+            + weight("exposure") * exposure_scores[index]
         )
         candidate.selection_reason = build_selection_reason(candidate)
 
@@ -1659,7 +1768,8 @@ def add_quality_scores(
 
 def build_selection_reason(candidate: PhotoCandidate) -> str:
     component_labels = {
-        "sharpness": "strong sharpness",
+        "sharpness": "a sharp subject",
+        "faces": "a clear, well-framed subject",
         "detail": "good subject detail",
         "contrast": "clean contrast",
         "exposure": "balanced exposure",
@@ -1692,7 +1802,8 @@ def build_selection_reason(candidate: PhotoCandidate) -> str:
 # Short, friendly badge shown on each keeper so the pick feels earned, not
 # a black box. Driven by the top-scoring quality component.
 _BADGE_BY_COMPONENT = {
-    "sharpness": "⚡ Tack-sharp",
+    "sharpness": "⚡ Sharp subject",
+    "faces": "🎯 Clear subject",
     "detail": "🔍 Rich detail",
     "contrast": "🌗 Clean contrast",
     "exposure": "☀️ Well-exposed",
