@@ -774,7 +774,78 @@ def inject_custom_css() -> None:
         ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
 
-        .clutch-section h2 { letter-spacing: -0.02em; }
+        /* ---- Visible premium upgrades to the brand surfaces ---- */
+
+        /* Impact Dashboard -> premium tiles: gradient accent bar + hover lift */
+        .clutch-metric-card {
+            position: relative;
+            min-height: 94px;
+            border: 1px solid rgba(255, 255, 255, 0.10) !important;
+            border-radius: 18px !important;
+            padding: 1.05rem 1.1rem 0.95rem !important;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)) !important;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28) !important;
+            overflow: hidden;
+            transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        }
+        .clutch-metric-card::before {
+            content: "";
+            position: absolute; top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, var(--clutch-orange), var(--clutch-pink));
+        }
+        .clutch-metric-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(255, 138, 42, 0.42) !important;
+            box-shadow: 0 20px 46px rgba(0, 0, 0, 0.38) !important;
+        }
+        .clutch-metric-value {
+            font-size: clamp(1.6rem, 4vw, 2.2rem) !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.03em !important;
+        }
+        .clutch-metric-label { font-size: 0.72rem !important; letter-spacing: 0.11em !important; }
+
+        /* Section headers: more breathing room + glowing accent dot */
+        .clutch-section { margin-top: 3rem; }
+        .clutch-section-label {
+            align-items: center;
+            background: rgba(255, 138, 42, 0.10);
+            border: 1px solid rgba(255, 138, 42, 0.30);
+        }
+        .clutch-section-label::before {
+            content: "";
+            display: inline-block;
+            width: 6px; height: 6px; border-radius: 50%;
+            margin-right: 0.5rem;
+            background: var(--clutch-orange);
+            box-shadow: 0 0 8px rgba(255, 138, 42, 0.9);
+        }
+        .clutch-section h2 {
+            letter-spacing: -0.03em;
+            font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+        }
+
+        /* Pills: glassier, more premium */
+        .clutch-pill {
+            border: 1px solid rgba(255, 255, 255, 0.20) !important;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)) !important;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+        }
+
+        /* Hero: deeper, more cinematic elevation */
+        .clutch-hero { box-shadow: 0 34px 100px rgba(0, 0, 0, 0.45); }
+
+        /* Primary CTA: unmistakable, premium gradient button */
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, var(--clutch-purple), var(--clutch-pink) 55%, var(--clutch-orange)) !important;
+            border: none !important;
+            color: #fff !important;
+            box-shadow: 0 12px 30px rgba(255, 78, 205, 0.32) !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            box-shadow: 0 16px 40px rgba(255, 78, 205, 0.45) !important;
+        }
 
         /* Accessibility: honor reduced-motion preference */
         @media (prefers-reduced-motion: reduce) {
