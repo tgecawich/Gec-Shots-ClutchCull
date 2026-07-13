@@ -698,6 +698,97 @@ def inject_custom_css() -> None:
         unsafe_allow_html=True,
     )
 
+    # Professional-polish layer: cohesive typeface, accessible focus states,
+    # smooth motion, and a consistent surface/elevation system. Pure CSS —
+    # brand colors and functionality are unchanged.
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+        html, body, .stApp, [data-testid="stAppViewContainer"],
+        [data-testid="stSidebar"], .stMarkdown, input, textarea, button, select {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        /* Buttons: smooth, confident motion + soft elevation */
+        .stButton > button, .stDownloadButton > button {
+            transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+        }
+        .stButton > button:hover, .stDownloadButton > button:hover {
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+            filter: brightness(1.05);
+        }
+        .stButton > button:active, .stDownloadButton > button:active {
+            transform: translateY(1px) scale(0.99);
+        }
+
+        /* Accessible, on-brand focus rings for keyboard navigation */
+        .stButton > button:focus-visible, .stDownloadButton > button:focus-visible,
+        .stTextInput input:focus, .stTextInput input:focus-visible,
+        [data-baseweb="select"] > div:focus-within,
+        .stCheckbox:focus-within, .stSlider:focus-within {
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(255, 138, 42, 0.55) !important;
+            border-color: var(--clutch-orange) !important;
+        }
+
+        /* Inputs / selects: consistent radius + smooth focus */
+        .stTextInput input, [data-baseweb="select"] > div {
+            border-radius: 12px !important;
+            transition: box-shadow .18s ease, border-color .18s ease;
+        }
+
+        /* Bordered cards: one unified elevation + hairline system */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 20px !important;
+            border: 1px solid var(--clutch-border) !important;
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+        }
+
+        /* Expanders: match the card system */
+        [data-testid="stExpander"] {
+            border-radius: 16px !important;
+            border: 1px solid var(--clutch-border) !important;
+            overflow: hidden;
+        }
+
+        /* Data/metrics: tabular numerals so numbers never shift */
+        .clutch-metric-value, [data-testid="stMetricValue"],
+        [data-testid="stTable"] td, [data-testid="stDataFrame"] {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Clear cursor affordance on interactive elements */
+        .stButton > button, .stDownloadButton > button,
+        [role="button"], label.stCheckbox, [data-baseweb="select"] {
+            cursor: pointer;
+        }
+
+        /* Refined selection + scrollbar for a polished feel */
+        ::selection { background: rgba(255, 138, 42, 0.35); }
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
+
+        .clutch-section h2 { letter-spacing: -0.02em; }
+
+        /* Accessibility: honor reduced-motion preference */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition: none !important;
+                animation: none !important;
+                scroll-behavior: auto !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_hero() -> None:
     st.markdown(
