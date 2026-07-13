@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+pydantic
+boto3
+opencv-python-headless
+pillow
+imagehash
+numpy
+scipy
+PyWavelets
+requests
