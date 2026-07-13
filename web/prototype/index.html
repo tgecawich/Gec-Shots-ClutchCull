@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ClutchCull — Find your best shots in minutes, not hours</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08060f; --panel:#12102a; --text:#f8f4ff; --muted:#b7aacb;
+    --orange:#ff8a2a; --gold:#ffc15a; --purple:#7b3cff; --pink:#ff4ecd;
+    --border:rgba(255,255,255,0.10);
+    --grad:linear-gradient(135deg,#7b3cff 0%,#ff4ecd 50%,#ff8a2a 100%);
+    --maxw:1120px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+    -webkit-font-smoothing:antialiased; line-height:1.5; overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;}
+  .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;}
+
+  /* NAV */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:rgba(8,6,15,0.72);border-bottom:1px solid var(--border);}
+  .nav-in{display:flex;align-items:center;justify-content:space-between;height:68px;}
+  .logo{font-weight:800;font-size:1.4rem;letter-spacing:-0.03em;display:flex;align-items:center;gap:10px;}
+  .logo .dot{width:30px;height:30px;border-radius:9px;background:var(--grad);display:grid;place-items:center;font-size:1rem;color:#fff;}
+  .nav-links{display:flex;gap:30px;align-items:center;font-size:0.95rem;color:var(--muted);font-weight:600;}
+  .nav-links a:hover{color:var(--text);}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:700;border-radius:14px;
+    padding:12px 22px;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;border:none;font-size:0.98rem;font-family:inherit;}
+  .btn-primary{background:var(--grad);color:#fff;box-shadow:0 10px 30px rgba(255,78,205,0.30);}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(255,78,205,0.45);}
+  .btn-ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);}
+  .btn-ghost:hover{background:rgba(255,255,255,0.12);}
+
+  /* HERO */
+  .hero{position:relative;padding:88px 0 40px;overflow:hidden;}
+  .hero::before{content:"";position:absolute;width:900px;height:900px;left:-200px;top:-320px;border-radius:50%;
+    background:radial-gradient(circle,rgba(123,60,255,0.42),transparent 62%);filter:blur(20px);}
+  .hero::after{content:"";position:absolute;width:760px;height:760px;right:-220px;top:-120px;border-radius:50%;
+    background:radial-gradient(circle,rgba(255,138,42,0.30),transparent 62%);filter:blur(20px);}
+  .hero-in{position:relative;z-index:1;text-align:center;max-width:820px;margin:0 auto;}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:999px;
+    border:1px solid var(--border);background:rgba(255,255,255,0.05);color:var(--gold);
+    font-weight:700;font-size:0.82rem;letter-spacing:0.04em;margin-bottom:26px;}
+  .eyebrow .pulse{width:7px;height:7px;border-radius:50%;background:var(--orange);box-shadow:0 0 10px var(--orange);}
+  h1.hero-title{font-size:clamp(2.6rem,6.5vw,4.6rem);font-weight:800;line-height:1.02;letter-spacing:-0.04em;}
+  .hero-sub{color:var(--muted);font-size:clamp(1.05rem,2vw,1.3rem);margin:22px auto 0;max-width:620px;line-height:1.6;}
+  .hero-cta{display:flex;gap:14px;justify-content:center;margin-top:34px;flex-wrap:wrap;}
+  .hero-trust{margin-top:26px;color:var(--muted);font-size:0.9rem;font-weight:600;display:flex;gap:20px;justify-content:center;flex-wrap:wrap;}
+  .hero-trust span{display:inline-flex;align-items:center;gap:7px;}
+  .check{color:#34d399;}
+
+  /* APP MOCK */
+  .mock{position:relative;z-index:1;margin:56px auto 0;max-width:940px;border-radius:20px;overflow:hidden;
+    border:1px solid var(--border);box-shadow:0 40px 120px rgba(0,0,0,0.6);background:var(--panel);}
+  .mock-bar{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.03);}
+  .mock-bar i{width:11px;height:11px;border-radius:50%;background:#ff5f57;display:inline-block;}
+  .mock-bar i:nth-child(2){background:#febc2e;} .mock-bar i:nth-child(3){background:#28c840;}
+  .mock-bar .url{margin-left:14px;color:var(--muted);font-size:0.8rem;}
+  .mock-body{padding:26px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+  .shot{aspect-ratio:4/5;border-radius:12px;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,rgba(123,60,255,0.5),rgba(255,138,42,0.4));}
+  .shot::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,0.28),transparent 55%);}
+  .shot .tag{position:absolute;top:10px;left:10px;z-index:2;font-size:0.68rem;font-weight:800;padding:5px 9px;border-radius:8px;background:rgba(0,0,0,0.55);color:#fff;}
+  .shot .score{position:absolute;bottom:10px;right:10px;z-index:2;font-size:0.72rem;font-weight:800;padding:5px 9px;border-radius:8px;background:var(--grad);color:#fff;}
+
+  /* STAT STRIP */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:72px 0;}
+  .stat{position:relative;border:1px solid var(--border);border-radius:18px;padding:22px;background:linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015));overflow:hidden;}
+  .stat::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--grad);}
+  .stat .num{font-size:2.1rem;font-weight:800;letter-spacing:-0.03em;font-variant-numeric:tabular-nums;}
+  .stat .lbl{color:var(--muted);font-size:0.78rem;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;margin-top:4px;}
+
+  /* SECTION */
+  .section{padding:72px 0;}
+  .sec-head{text-align:center;max-width:620px;margin:0 auto 48px;}
+  .sec-tag{display:inline-flex;align-items:center;gap:8px;color:var(--orange);font-weight:800;font-size:0.78rem;letter-spacing:0.12em;text-transform:uppercase;}
+  .sec-tag .pulse{width:6px;height:6px;border-radius:50%;background:var(--orange);box-shadow:0 0 8px var(--orange);}
+  .sec-head h2{font-size:clamp(1.9rem,4vw,2.9rem);font-weight:800;letter-spacing:-0.035em;margin-top:14px;line-height:1.08;}
+  .sec-head p{color:var(--muted);margin-top:14px;font-size:1.08rem;}
+
+  /* FEATURES */
+  .feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .feat{border:1px solid var(--border);border-radius:20px;padding:28px;background:linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.015));transition:transform .2s ease,border-color .2s ease;}
+  .feat:hover{transform:translateY(-4px);border-color:rgba(255,138,42,0.4);}
+  .feat .ic{width:48px;height:48px;border-radius:13px;display:grid;place-items:center;background:rgba(255,138,42,0.14);border:1px solid rgba(255,138,42,0.28);margin-bottom:18px;}
+  .feat .ic svg{width:24px;height:24px;stroke:var(--orange);fill:none;stroke-width:2;}
+  .feat h3{font-size:1.2rem;font-weight:700;letter-spacing:-0.02em;}
+  .feat p{color:var(--muted);margin-top:8px;font-size:0.96rem;line-height:1.6;}
+
+  /* STEPS */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;}
+  .step{border:1px solid var(--border);border-radius:20px;padding:28px;background:rgba(255,255,255,0.02);position:relative;}
+  .step .n{font-size:2.4rem;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;}
+  .step h3{margin-top:14px;font-size:1.15rem;font-weight:700;}
+  .step p{color:var(--muted);margin-top:8px;font-size:0.95rem;line-height:1.6;}
+
+  /* CTA */
+  .cta{position:relative;border-radius:28px;overflow:hidden;padding:64px 32px;text-align:center;
+    background:var(--grad);margin:40px 0 72px;box-shadow:0 30px 90px rgba(123,60,255,0.35);}
+  .cta::before{content:"";position:absolute;inset:-40%;background:radial-gradient(circle,rgba(255,255,255,0.16) 0 1px,transparent 1px);background-size:26px 26px;opacity:0.3;}
+  .cta-in{position:relative;z-index:1;}
+  .cta h2{font-size:clamp(2rem,4.5vw,3.1rem);font-weight:800;letter-spacing:-0.04em;color:#fff;}
+  .cta p{color:rgba(255,255,255,0.9);margin-top:14px;font-size:1.1rem;}
+  .cta .btn{margin-top:28px;background:#fff;color:#7314a8;font-size:1.1rem;padding:16px 34px;}
+  .cta .btn:hover{transform:translateY(-2px);}
+
+  footer{border-top:1px solid var(--border);padding:36px 0;color:var(--muted);font-size:0.9rem;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;}
+
+  @media(max-width:820px){
+    .mock-body,.stats,.feat-grid,.steps{grid-template-columns:1fr 1fr;}
+    .nav-links{display:none;}
+  }
+  @media(max-width:520px){ .mock-body,.stats,.feat-grid,.steps{grid-template-columns:1fr;} }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+</style>
+</head>
+<body>
+<nav><div class="wrap nav-in">
+  <div class="logo"><span class="dot">C</span>Clutch<span class="grad-text">Cull</span></div>
+  <div class="nav-links"><a href="#features">Features</a><a href="#how">How it works</a><a href="#">Canvas</a></div>
+  <a class="btn btn-primary" href="#">Launch app</a>
+</div></nav>
+
+<header class="hero"><div class="wrap hero-in">
+  <div class="eyebrow"><span class="pulse"></span>USED BY 500+ SPORTS PHOTOGRAPHERS</div>
+  <h1 class="hero-title">Find your best shots in <span class="grad-text">minutes,</span> not hours.</h1>
+  <p class="hero-sub">Drop a full game shoot in. ClutchCull's AI locks onto the athlete, cuts blurry frames and duplicates, and ranks your sharpest keepers — automatically.</p>
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="#">Cull my shoot free →</a>
+    <a class="btn btn-ghost" href="#how">See how it works</a>
+  </div>
+  <div class="hero-trust">
+    <span><span class="check">✓</span> 100% free</span>
+    <span><span class="check">✓</span> No sign-up</span>
+    <span><span class="check">✓</span> Photos stay private</span>
+  </div>
+
+  <div class="mock">
+    <div class="mock-bar"><i></i><i></i><i></i><span class="url">clutchcull.app</span></div>
+    <div class="mock-body">
+      <div class="shot"><span class="tag">⚡ Sharp subject</span><span class="score">98</span></div>
+      <div class="shot"><span class="tag">🎯 Clear subject</span><span class="score">95</span></div>
+      <div class="shot"><span class="tag">☀ Well-exposed</span><span class="score">91</span></div>
+      <div class="shot"><span class="tag">⚡ Sharp subject</span><span class="score">88</span></div>
+      <div class="shot"><span class="tag">🔍 Rich detail</span><span class="score">86</span></div>
+      <div class="shot"><span class="tag">🌗 Clean contrast</span><span class="score">83</span></div>
+    </div>
+  </div>
+</div></header>
+
+<div class="wrap">
+  <div class="stats">
+    <div class="stat"><div class="num">428→35</div><div class="lbl">shots to keepers</div></div>
+    <div class="stat"><div class="num">0:19</div><div class="lbl">avg cull time</div></div>
+    <div class="stat"><div class="num">15,131</div><div class="lbl">photos processed</div></div>
+    <div class="stat"><div class="num">30.6</div><div class="lbl">hours saved</div></div>
+  </div>
+</div>
+
+<section class="section" id="features"><div class="wrap">
+  <div class="sec-head"><span class="sec-tag"><span class="pulse"></span>Why it's different</span>
+    <h2>It scores the athlete — not just the frame.</h2>
+    <p>Most tools measure whole-frame sharpness. ClutchCull finds your subject and judges the shot the way you would.</p>
+  </div>
+  <div class="feat-grid">
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/></svg></div>
+      <h3>AI subject detection</h3><p>Locks onto the player so a sharp background behind a blurry athlete never wins.</p></div>
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9"/><path d="M3 4v5h5"/></svg></div>
+      <h3>Nothing is deleted</h3><p>Removed a keeper? Rescue any shot from the bin in one tap. Your call is always final.</p></div>
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 15l4-4 4 4 4-5 4 4"/></svg></div>
+      <h3>Instagram canvas</h3><p>Turn picks into ready-to-post 3:4, 4:5, or 1:1 canvas posts in a tap.</p></div>
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
+      <h3>Your photos stay private</h3><p>Full-res originals never leave your device. Nothing is sold, shared, or used to train anything.</p></div>
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg></div>
+      <h3>Blazing fast uploads</h3><p>Photos optimize in your browser and upload in parallel — up to 50× faster on big batches.</p></div>
+    <div class="feat"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></div>
+      <h3>Transparent ranking</h3><p>Every keeper shows why it was picked — sharpness, subject, exposure — no black box.</p></div>
+  </div>
+</div></section>
+
+<section class="section" id="how"><div class="wrap">
+  <div class="sec-head"><span class="sec-tag"><span class="pulse"></span>How it works</span>
+    <h2>Three steps. Done before you'd finish your first coffee.</h2></div>
+  <div class="steps">
+    <div class="step"><div class="n">01</div><h3>Drop your shoot</h3><p>Upload a whole game — hundreds of frames, straight from your browser.</p></div>
+    <div class="step"><div class="n">02</div><h3>AI ranks the keepers</h3><p>Blurry frames and duplicates out; your sharpest, best-framed shots surfaced and scored.</p></div>
+    <div class="step"><div class="n">03</div><h3>Export & post</h3><p>Grab full-res keepers or one-tap Instagram canvas posts. You're done.</p></div>
+  </div>
+</div></section>
+
+<div class="wrap"><section class="cta"><div class="cta-in">
+  <h2>Cull your next game in seconds.</h2>
+  <p>Free. No sign-up. Built from the sideline by a student-athlete photographer.</p>
+  <a class="btn" href="#">Launch ClutchCull →</a>
+</div></section></div>
+
+<footer class="wrap">
+  <div class="logo" style="font-size:1.1rem;"><span class="dot" style="width:24px;height:24px;font-size:0.8rem;">C</span>ClutchCull</div>
+  <div>Built by @gec.shots · © 2026</div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "clutchcull",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "streamlit", "run", "app.py", "--server.port", "8601", "--server.headless", "true"],
+      "port": 8601
+    },
+    {
+      "name": "prototype",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8700", "--directory", "web/prototype"],
+      "port": 8700
+    }
+  ]
+}
