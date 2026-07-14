@@ -13,8 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . ./
 
-# Hugging Face Docker Spaces route to port 7860 by default.
+# Listens on $PORT (Render) with a 7860 fallback (Hugging Face).
 EXPOSE 7860
-HEALTHCHECK CMD curl --fail http://localhost:7860/health || exit 1
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-7860}"]
