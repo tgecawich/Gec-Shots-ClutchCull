@@ -141,3 +141,22 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--mute
 .keeper-meta .score { font-weight: 800; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 1rem; }
 @media (max-width: 820px) { .controls, .keeper-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .controls, .keeper-grid { grid-template-columns: 1fr; } }
+
+/* selectable keeper cards (now buttons) */
+button.keeper { text-align: left; padding: 0; cursor: pointer; font-family: inherit; color: inherit; position: relative; }
+.keeper.sel { border-color: var(--orange); box-shadow: 0 0 0 2px rgba(255,138,42,0.45); }
+.keeper .tick { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 900; font-size: 0.9rem; color: #fff;
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3); }
+.keeper.sel .tick { background: var(--grad); border: none; }
+.keeper.removed img { opacity: 0.62; }
+.keeper.removed.sel img { opacity: 1; }
+.muted-note { color: var(--muted); font-weight: 500; font-size: 0.95rem; }
+.export-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 20px 0 26px; }
+.app-busy { color: var(--gold); font-weight: 600; }
+.canvas-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.canvas-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 8px; }
+.canvas-item { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,0.4); }
+.canvas-item img { width: 100%; display: block; }
+@media (max-width: 820px) { .canvas-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .canvas-grid { grid-template-columns: 1fr; } }

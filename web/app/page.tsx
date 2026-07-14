@@ -1,4 +1,4 @@
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "#";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "/app";
 
 const shots = [
   { tag: "⚡ Sharp subject", score: 98 },
