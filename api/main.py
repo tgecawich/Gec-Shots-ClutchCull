@@ -14,7 +14,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -133,6 +133,30 @@ def cull(req: CullRequest):
             top_n=req.top_n,
             preset=req.preset,
         )
+
+
+@app.post("/cull-upload")
+async def cull_upload(
+    files: list[UploadFile] = File(...),
+    blur_threshold: float = Form(40.0),
+    duplicate_threshold: int = Form(2),
+    top_n: int = Form(35),
+    preset: str = Form("Balanced"),
+):
+    """Direct multipart cull — browser posts resized previews, no R2 needed.
+
+    Used for dev and as a simple fallback; production uses presign + /cull for
+    direct-to-R2 uploads.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for f in files:
+            dest = Path(tmp) / Path(f.filename or "photo.jpg").name
+            dest.write_bytes(await f.read())
+            paths.append(dest)
+        if not paths:
+            raise HTTPException(400, "No files uploaded")
+        return engine.cull(paths, blur_threshold, duplicate_threshold, top_n, preset)
 
 
 @app.post("/canvas")
