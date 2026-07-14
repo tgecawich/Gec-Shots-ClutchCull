@@ -1,10 +1,13 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7860";
 
+export type Dupe = { filename: string; score: number; badge: string };
+
 export type Keeper = {
   filename: string;
   score: number;
   badge: string;
   breakdown: Record<string, number>;
+  duplicates?: Dupe[];
 };
 
 export type CullResult = {

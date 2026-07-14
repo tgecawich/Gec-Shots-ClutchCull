@@ -207,7 +207,9 @@ def add_scores(cands, weights):
 
 
 def remove_duplicates(cands, threshold):
-    kept, groups = [], []
+    """Return (kept, dup_map) where dup_map[keeper_name] = [near-dup candidates]."""
+    kept = []
+    dup_map: dict = {}
     for c in sorted(cands, key=lambda x: -x.score):
         dup_of = None
         for k in kept:
@@ -216,10 +218,10 @@ def remove_duplicates(cands, threshold):
                     dup_of = k
                     break
         if dup_of is not None:
-            groups.append((dup_of.path.name, c.path.name))
+            dup_map.setdefault(dup_of.path.name, []).append(c)
         else:
             kept.append(c)
-    return kept, groups
+    return kept, dup_map
 
 
 def cull(image_paths, blur_threshold=40.0, duplicate_threshold=2, top_n=35, preset="Balanced"):
@@ -234,19 +236,24 @@ def cull(image_paths, blur_threshold=40.0, duplicate_threshold=2, top_n=35, pres
         else:
             candidates.append(m)
     scored = add_scores(candidates, weights)
-    unique, dup_groups = remove_duplicates(scored, duplicate_threshold)
+    unique, dup_map = remove_duplicates(scored, duplicate_threshold)
     unique.sort(key=lambda c: -c.score)
     selected = unique[:top_n]
+    dup_count = sum(len(v) for v in dup_map.values())
+
+    def cand_dict(c, with_dupes=False):
+        d = {"filename": c.path.name, "score": round(c.score, 2), "badge": c.selection_reason,
+             "breakdown": {k: round(v, 3) for k, v in c.score_breakdown.items()}}
+        if with_dupes:
+            d["duplicates"] = [cand_dict(a) for a in dup_map.get(c.path.name, [])]
+        return d
+
     return {
         "total": len(image_paths),
         "blurry_removed": len(blurry),
-        "duplicates_removed": len(dup_groups),
+        "duplicates_removed": dup_count,
         "unreadable_skipped": unreadable,
-        "keepers": [
-            {"filename": c.path.name, "score": round(c.score, 2),
-             "badge": c.selection_reason, "breakdown": {k: round(v, 3) for k, v in c.score_breakdown.items()}}
-            for c in selected
-        ],
+        "keepers": [cand_dict(c, with_dupes=True) for c in selected],
         "rejected": [c.path.name for c in sorted(blurry, key=lambda c: -c.sharpness)],
     }
 

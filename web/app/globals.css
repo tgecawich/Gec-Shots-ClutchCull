@@ -179,3 +179,11 @@ button.keeper { text-align: left; padding: 0; cursor: pointer; font-family: inhe
 .email-capture span { color: var(--muted); }
 .email-row { display: flex; gap: 10px; margin-top: 12px; max-width: 460px; }
 .email-row input { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-family: inherit; }
+
+/* compare / swap near-duplicates */
+.dupe-groups { display: flex; flex-direction: column; gap: 14px; }
+.dupe-group { display: flex; gap: 12px; overflow-x: auto; padding: 12px; border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,0.02); }
+.dupe-frame { position: relative; flex: 0 0 auto; width: 150px; border: 2px solid transparent; border-radius: 12px; overflow: hidden; cursor: pointer; padding: 0; background: none; }
+.dupe-frame img, .dupe-frame .keeper-ph { width: 150px; aspect-ratio: 4/5; object-fit: cover; display: block; }
+.dupe-frame.sel { border-color: var(--orange); box-shadow: 0 0 0 2px rgba(255,138,42,0.45); }
+.dupe-badge { position: absolute; bottom: 8px; left: 8px; background: var(--grad); color: #fff; font-size: 0.72rem; font-weight: 800; padding: 4px 9px; border-radius: 8px; }

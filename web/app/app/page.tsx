@@ -74,6 +74,8 @@ export default function AppPage() {
 
   const toggleSel = (name: string) =>
     setSelected((prev) => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s; });
+  const chooseFrame = (groupNames: string[], chosen: string) =>
+    setSelected((prev) => { const s = new Set(prev); groupNames.forEach((n) => s.delete(n)); s.add(chosen); return s; });
 
   async function exportKeepers() {
     setBusy("Zipping full-resolution keepers…");
@@ -238,6 +240,27 @@ export default function AppPage() {
                     </table>
                   </div>
                 </details>
+
+                {results.keepers.some((k) => k.duplicates && k.duplicates.length) && (
+                  <>
+                    <h2 className="results-h2" style={{ marginTop: 40 }}>👯 Compare similar shots <span className="muted-note">— AI picked one from each burst; tap another to swap it in</span></h2>
+                    <div className="dupe-groups">
+                      {results.keepers.filter((k) => k.duplicates && k.duplicates.length).map((k) => {
+                        const group = [k.filename, ...k.duplicates!.map((d) => d.filename)];
+                        return (
+                          <div className="dupe-group" key={k.filename}>
+                            {group.map((name) => (
+                              <button className={`dupe-frame${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => chooseFrame(group, name)}>
+                                {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                                {selected.has(name) && <span className="dupe-badge">✓ Keeping</span>}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
 
                 {results.rejected.length > 0 && (
                   <>
