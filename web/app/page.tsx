@@ -1,5 +1,31 @@
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "/app";
 
+const SHEET_CSV =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv";
+
+// Live Impact Dashboard — fetched server-side from the shared Google Sheet
+// (same data source as the original app), so it stays visible and current.
+async function getImpact() {
+  try {
+    const res = await fetch(SHEET_CSV, { next: { revalidate: 300 } });
+    if (!res.ok) return null;
+    const rows = (await res.text()).trim().split(/\r?\n/).map((r) => r.split(","));
+    const header = rows[0].map((h) => h.trim().toLowerCase().replace(/ /g, "_"));
+    const ci = (n: string) => header.indexOf(n);
+    const iE = ci("event_type"), iP = ci("photos_processed"), iX = ci("exports"), iM = ci("minutes_saved");
+    let sessions = 0, photos = 0, exports = 0, minutes = 0;
+    for (const row of rows.slice(1)) {
+      if (iE >= 0 && row[iE] === "session_start") sessions++;
+      if (iP >= 0) photos += parseFloat(row[iP]) || 0;
+      if (iX >= 0) exports += parseFloat(row[iX]) || 0;
+      if (iM >= 0) minutes += parseFloat(row[iM]) || 0;
+    }
+    return { sessions, photos, exports, hours: minutes / 60 };
+  } catch {
+    return null;
+  }
+}
+
 const shots = [
   { tag: "⚡ Sharp subject", score: 98 },
   { tag: "🎯 Clear subject", score: 95 },
@@ -80,7 +106,16 @@ const stats = [
   { num: "30.6", lbl: "hours saved" },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const impact = await getImpact();
+  const dash = impact
+    ? [
+        { num: impact.sessions.toLocaleString(), lbl: "Sessions" },
+        { num: Math.round(impact.photos).toLocaleString(), lbl: "Photos processed" },
+        { num: Math.round(impact.exports).toLocaleString(), lbl: "Exports" },
+        { num: impact.hours.toFixed(1), lbl: "Hours saved" },
+      ]
+    : stats;
   return (
     <>
       <nav>
@@ -131,16 +166,23 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="wrap">
-        <div className="stats">
-          {stats.map((s) => (
-            <div className="stat" key={s.lbl}>
-              <div className="num">{s.num}</div>
-              <div className="lbl">{s.lbl}</div>
-            </div>
-          ))}
+      <section className="section" id="impact">
+        <div className="wrap">
+          <div className="sec-head">
+            <span className="sec-tag"><span className="pulse" />Live proof</span>
+            <h2>Impact Dashboard</h2>
+            <p>Real photographers, real shoots — a live look at how much time ClutchCull has saved.</p>
+          </div>
+          <div className="stats" style={{ margin: 0 }}>
+            {dash.map((s) => (
+              <div className="stat" key={s.lbl}>
+                <div className="num">{s.num}</div>
+                <div className="lbl">{s.lbl}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
       <section className="section" id="features">
         <div className="wrap">
