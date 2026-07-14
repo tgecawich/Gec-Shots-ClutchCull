@@ -13,11 +13,10 @@ const F = {
 
 function sessionId(): string {
   if (typeof window === "undefined") return "";
-  let id = localStorage.getItem("cc_sid");
-  if (!id) {
-    id = (crypto as any).randomUUID?.() || String(Date.now()) + Math.random();
-    localStorage.setItem("cc_sid", id);
-  }
+  const existing = localStorage.getItem("cc_sid");
+  if (existing) return existing;
+  const id: string = (globalThis.crypto as any)?.randomUUID?.() || String(Date.now()) + Math.random();
+  localStorage.setItem("cc_sid", id);
   return id;
 }
 
