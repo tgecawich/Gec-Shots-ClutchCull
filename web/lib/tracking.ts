@@ -44,10 +44,13 @@ export function trackPhotos(n: number, email = "") {
   post({ [F.event]: "photos_processed", [F.photos]: String(n), [F.email]: email, [F.session]: sessionId() });
 }
 
-export function trackExport(minutes: number, n: number, email = "") {
+// One export event per download. `minutes` (time saved) should be passed once
+// per shoot (0 on later downloads) so Hours Saved isn't inflated. Photos are
+// counted at cull time, not here.
+export function trackExport(minutes: number, email = "") {
   post({
     [F.event]: "export_completed", [F.exports]: "1",
-    [F.minutes]: minutes.toFixed(2), [F.photos]: String(n), [F.email]: email, [F.session]: sessionId(),
+    [F.minutes]: minutes.toFixed(2), [F.email]: email, [F.session]: sessionId(),
   });
 }
 

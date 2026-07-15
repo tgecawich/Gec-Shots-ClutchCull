@@ -6,7 +6,7 @@ import { cullUpload, type CullResult, type CullSettings } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
-import { trackSessionStart, trackPhotos, trackExport, trackCanvas, trackEmail } from "@/lib/tracking";
+import { trackSessionStart, trackPhotos, trackExport, trackEmail } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
 const BADGE_ICON: Record<string, string> = {
@@ -37,8 +37,10 @@ export default function AppPage() {
   const [email, setEmail] = useState("");
   const [emailSaved, setEmailSaved] = useState(false);
   const [nudge, setNudge] = useState(false);
+  const [minutesLogged, setMinutesLogged] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasInputRef = useRef<HTMLInputElement>(null);
+  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     trackSessionStart();
@@ -63,7 +65,7 @@ export default function AppPage() {
 
   async function runCull() {
     if (!fileCount) return;
-    setLoading(true); setError(""); setResults(null); setCanvases([]); setReport("");
+    setLoading(true); setError(""); setResults(null); setCanvases([]); setReport(""); setMinutesLogged(false);
     setProgress(0); setPhase("Optimizing your photos in the browser…");
     try {
       const t0 = performance.now();
@@ -71,11 +73,17 @@ export default function AppPage() {
       let done = 0;
       const resized = await Promise.all(files.map(async (f) => {
         const r = await resizeImage(f);
-        done++; setProgress((done / files.length) * 0.55);
+        done++; setProgress((done / files.length) * 0.4);
         return r;
       }));
-      setPhase("Analyzing your shoot with AI…"); setProgress(0.6);
+      setPhase("Analyzing your shoot with AI…"); setProgress(0.42);
+      // One request = no exact server progress, so climb toward ~95% and
+      // decelerate as we near it, then snap to 100% when results arrive.
+      progressTimer.current = setInterval(() => {
+        setProgress((p) => (p < 0.95 ? p + (0.95 - p) * 0.06 : p));
+      }, 300);
       const res = await cullUpload(resized, settings);
+      if (progressTimer.current) clearInterval(progressTimer.current);
       setProgress(1);
       setElapsed((performance.now() - t0) / 1000);
       setResults(res);
@@ -83,7 +91,17 @@ export default function AppPage() {
       trackPhotos(res.total, email);
     } catch (e: any) {
       setError(e?.message || "Something went wrong");
-    } finally { setLoading(false); setPhase(""); }
+    } finally {
+      if (progressTimer.current) clearInterval(progressTimer.current);
+      setLoading(false); setPhase("");
+    }
+  }
+
+  // Every download counts as an export; Hours Saved is added once per shoot.
+  function logExport() {
+    const mins = results && !minutesLogged ? hoursSaved * 60 : 0;
+    trackExport(mins, email);
+    if (results && !minutesLogged) setMinutesLogged(true);
   }
 
   const toggleSel = (name: string) =>
@@ -95,15 +113,19 @@ export default function AppPage() {
     setBusy("Zipping full-resolution keepers…");
     const entries = [...selected].map((n, i) => ({ name: `${String(i + 1).padStart(2, "0")}_${n}`, blob: filesMap[n] as Blob })).filter((e) => e.blob);
     await downloadZip(entries, "clutchcull_keepers.zip");
-    trackExport(hoursSaved * 60, selected.size, email);
+    logExport();
     setBusy("");
   }
-  const exportList = () => triggerDownload(new Blob([[...selected].join("\n") + "\n"], { type: "text/plain" }), "clutchcull_keepers.txt");
+  function exportList() {
+    triggerDownload(new Blob([[...selected].join("\n") + "\n"], { type: "text/plain" }), "clutchcull_keepers.txt");
+    logExport();
+  }
   function exportCSV() {
     if (!results) return;
     const rows = ["rank,filename,badge,score"];
     results.keepers.filter((k) => selected.has(k.filename)).forEach((k, i) => rows.push(`${i + 1},"${k.filename}","${k.badge}",${k.score.toFixed(2)}`));
     triggerDownload(new Blob([rows.join("\n") + "\n"], { type: "text/csv" }), "clutchcull_keepers.csv");
+    logExport();
   }
   async function buildReport() {
     if (!results) return;
@@ -125,11 +147,12 @@ export default function AppPage() {
       const f = filesMap[n]; if (!f) continue;
       try { const blob = await makeCanvas(f, ratio, padding); out.push({ name: `canvas_${n.replace(/\.\w+$/, "")}.jpg`, url: URL.createObjectURL(blob), blob }); } catch {}
     }
-    setCanvases(out); trackCanvas(out.length, email); setBusy("");
+    setCanvases(out); setBusy("");
   }
   async function downloadCanvases() {
     setBusy("Zipping canvas posts…");
     await downloadZip(canvases.map((c) => ({ name: c.name, blob: c.blob })), "clutchcull_canvas.zip");
+    logExport();
     setBusy("");
   }
   const saveEmail = () => { const e = email.trim(); if (e) { trackEmail(e); setEmailSaved(true); } };
@@ -188,11 +211,9 @@ export default function AppPage() {
             {loading && (
               <div className="cull-progress">
                 <div className="cp-track">
-                  {phase.startsWith("Analyzing")
-                    ? <div className="cp-fill indet" />
-                    : <div className="cp-fill" style={{ width: `${Math.max(6, progress * 100)}%` }} />}
+                  <div className="cp-fill" style={{ width: `${Math.max(4, progress * 100)}%` }} />
                 </div>
-                <div className="cp-label">{phase}</div>
+                <div className="cp-label">{phase} {Math.round(progress * 100)}%</div>
               </div>
             )}
 
@@ -222,7 +243,7 @@ export default function AppPage() {
                 {report && (
                   <div className="report-out">
                     <img src={report} alt="Cull report" />
-                    <a className="btn btn-primary" href={report} download="clutchcull_report.jpg">⬇ Download this card</a>
+                    <a className="btn btn-primary" href={report} download="clutchcull_report.jpg" onClick={logExport}>⬇ Download this card</a>
                   </div>
                 )}
 
