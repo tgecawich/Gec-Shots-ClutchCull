@@ -1,13 +1,35 @@
+// Run an async op over a list with a fixed concurrency cap. Decoding 300
+// images at once thrashes memory and stalls the tab; a small pool is faster.
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Downscale a photo in the browser before upload (keeps big batches fast).
+// Analysis only needs enough resolution to rank sharpness/faces/detail — the
+// final keeper EXPORT always uses the untouched original, so we can send a
+// much smaller copy to the server: faster upload + faster face detection.
 export async function resizeImage(
   file: File,
-  maxDim = 1800,
-  quality = 0.82
+  maxDim = 1400,
+  quality = 0.72
 ): Promise<File> {
   try {
-    const bitmap = await createImageBitmap(file).catch(() => createImageBitmap(file));
+    const bitmap = await createImageBitmap(file);
     const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-    if (scale >= 1 && /jpe?g/i.test(file.type) && file.size < 2_000_000) {
+    if (scale >= 1 && /jpe?g/i.test(file.type) && file.size < 900_000) {
       bitmap.close();
       return file;
     }

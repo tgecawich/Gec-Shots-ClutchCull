@@ -26,6 +26,16 @@ export type CullSettings = {
   dupes: number;
 };
 
+// Wake the Render dyno (free tier sleeps after ~15 min idle). Fire-and-forget
+// so the server is warm by the time the user actually hits "Cull".
+export function warmApi(): void {
+  try {
+    fetch(`${API_URL}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+  } catch {
+    /* best-effort */
+  }
+}
+
 export async function cullUpload(files: File[], s: CullSettings): Promise<CullResult> {
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f, f.name));

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { resizeImage } from "@/lib/resize";
-import { cullUpload, type CullResult, type CullSettings } from "@/lib/api";
+import { resizeImage, mapLimit } from "@/lib/resize";
+import { cullUpload, warmApi, type CullResult, type CullSettings } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
@@ -44,6 +44,7 @@ export default function AppPage() {
 
   useEffect(() => {
     trackSessionStart();
+    warmApi(); // wake the sleeping API so the first cull isn't a cold start
     if (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) && !localStorage.getItem("cc_nudged")) setNudge(true);
   }, []);
 
@@ -57,6 +58,7 @@ export default function AppPage() {
     if (!list) return;
     const arr = Array.from(list).filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name));
     if (!arr.length) return;
+    warmApi(); // photos added — make sure the API is awake before they cull
     setFilesMap((prev) => { const m = { ...prev }; arr.forEach((f) => (m[f.name] = f)); return m; });
     setThumbs((prev) => { const t = { ...prev }; arr.forEach((f) => (t[f.name] ||= URL.createObjectURL(f))); return t; });
     if (alsoSelect) setSelected((prev) => { const s = new Set(prev); arr.forEach((f) => s.add(f.name)); return s; });
@@ -71,11 +73,11 @@ export default function AppPage() {
       const t0 = performance.now();
       const files = Object.values(filesMap);
       let done = 0;
-      const resized = await Promise.all(files.map(async (f) => {
+      const resized = await mapLimit(files, 6, async (f) => {
         const r = await resizeImage(f);
         done++; setProgress((done / files.length) * 0.4);
         return r;
-      }));
+      });
       setPhase("Analyzing your shoot with AI…"); setProgress(0.42);
       // One request = no exact server progress, so climb toward ~95% and
       // decelerate as we near it, then snap to 100% when results arrive.
