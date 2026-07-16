@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resizeImage, mapLimit } from "@/lib/resize";
-import { cullUpload, warmApi, type CullResult, type CullSettings } from "@/lib/api";
+import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type CullSettings, type Metric } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
@@ -38,9 +38,12 @@ export default function AppPage() {
   const [emailSaved, setEmailSaved] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [minutesLogged, setMinutesLogged] = useState(false);
+  const [canRerank, setCanRerank] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasInputRef = useRef<HTMLInputElement>(null);
-  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Cached per-image metrics + the file set they belong to, so slider changes
+  // re-rank instantly instead of re-uploading and re-analyzing.
+  const metricsRef = useRef<{ key: string; metrics: Metric[] } | null>(null);
 
   useEffect(() => {
     trackSessionStart();
@@ -49,6 +52,7 @@ export default function AppPage() {
   }, []);
 
   const fileCount = Object.keys(filesMap).length;
+  const fileKey = Object.keys(filesMap).sort().join("|");
   const filtered = results ? results.blurry_removed + results.duplicates_removed : 0;
   const hoursSaved = results ? (results.total * 15) / 3600 : 0;
   const canvasNames = [...selected];
@@ -59,45 +63,77 @@ export default function AppPage() {
     const arr = Array.from(list).filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name));
     if (!arr.length) return;
     warmApi(); // photos added — make sure the API is awake before they cull
+    if (!alsoSelect) { metricsRef.current = null; setCanRerank(false); } // new photos → cached metrics stale
     setFilesMap((prev) => { const m = { ...prev }; arr.forEach((f) => (m[f.name] = f)); return m; });
     setThumbs((prev) => { const t = { ...prev }; arr.forEach((f) => (t[f.name] ||= URL.createObjectURL(f))); return t; });
     if (alsoSelect) setSelected((prev) => { const s = new Set(prev); arr.forEach((f) => s.add(f.name)); return s; });
     else setResults(null);
   }, []);
 
+  function finishCull(res: CullResult, t0: number, fresh: boolean) {
+    setProgress(1);
+    setElapsed((performance.now() - t0) / 1000);
+    setResults(res);
+    setSelected(new Set(res.keepers.map((k) => k.filename)));
+    if (fresh) trackPhotos(res.total, email); // count photos once per shoot, not per re-rank
+  }
+
   async function runCull() {
     if (!fileCount) return;
-    setLoading(true); setError(""); setResults(null); setCanvases([]); setReport(""); setMinutesLogged(false);
-    setProgress(0); setPhase("Optimizing your photos in the browser…");
+    setLoading(true); setError(""); setCanvases([]); setReport(""); setMinutesLogged(false);
+    const t0 = performance.now();
     try {
-      const t0 = performance.now();
+      // Fast path: we already analyzed this exact set of photos — just re-rank.
+      const cached = metricsRef.current;
+      if (cached && cached.key === fileKey) {
+        setPhase("Ranking your keepers…"); setProgress(0.9);
+        finishCull(await rankMetrics(cached.metrics, settings), t0, false);
+        return;
+      }
+
+      setResults(null);
+      setProgress(0); setPhase("Optimizing your photos in the browser…");
       const files = Object.values(filesMap);
       let done = 0;
       const resized = await mapLimit(files, 6, async (f) => {
         const r = await resizeImage(f);
-        done++; setProgress((done / files.length) * 0.4);
+        done++; setProgress((done / files.length) * 0.3);
         return r;
       });
-      setPhase("Analyzing your shoot with AI…"); setProgress(0.42);
-      // One request = no exact server progress, so climb toward ~95% and
-      // decelerate as we near it, then snap to 100% when results arrive.
-      progressTimer.current = setInterval(() => {
-        setProgress((p) => (p < 0.95 ? p + (0.95 - p) * 0.06 : p));
-      }, 300);
-      const res = await cullUpload(resized, settings);
-      if (progressTimer.current) clearInterval(progressTimer.current);
-      setProgress(1);
-      setElapsed((performance.now() - t0) / 1000);
-      setResults(res);
-      setSelected(new Set(res.keepers.map((k) => k.filename)));
-      trackPhotos(res.total, email);
+
+      setPhase("Analyzing your shoot with AI…");
+      try {
+        // Score once (chunked, concurrent, real progress), cache, then rank.
+        const metrics = await scoreUpload(resized, (d, t) => setProgress(0.3 + (d / t) * 0.62));
+        metricsRef.current = { key: fileKey, metrics };
+        setCanRerank(true);
+        setPhase("Ranking your keepers…"); setProgress(0.95);
+        finishCull(await rankMetrics(metrics, settings), t0, true);
+      } catch {
+        // Fallback for an older API that lacks /score-upload: one-shot cull.
+        finishCull(await cullUpload(resized, settings), t0, true);
+      }
     } catch (e: any) {
       setError(e?.message || "Something went wrong");
     } finally {
-      if (progressTimer.current) clearInterval(progressTimer.current);
       setLoading(false); setPhase("");
     }
   }
+
+  // Instant re-rank: when metrics are cached and the user nudges a slider/preset,
+  // rebuild keepers from the server in ~a moment — no re-upload, no re-analysis.
+  useEffect(() => {
+    if (!canRerank || !metricsRef.current || metricsRef.current.key !== fileKey) return;
+    const id = setTimeout(async () => {
+      try {
+        const res = await rankMetrics(metricsRef.current!.metrics, settings);
+        setResults(res);
+        setSelected(new Set(res.keepers.map((k) => k.filename)));
+      } catch { /* leave current results in place */ }
+    }, 300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.top_n, settings.blur, settings.dupes, settings.preset]);
 
   // Every download counts as an export; Hours Saved is added once per shoot.
   function logExport() {

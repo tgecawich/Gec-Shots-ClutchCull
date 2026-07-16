@@ -7,7 +7,9 @@ function takes its inputs explicitly so it's safe behind a web API.
 """
 from __future__ import annotations
 
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -224,21 +226,64 @@ def remove_duplicates(cands, threshold):
     return kept, dup_map
 
 
-def cull(image_paths, blur_threshold=40.0, duplicate_threshold=2, top_n=35, preset="Balanced"):
-    weights = SCORING_PRESETS.get(preset, SCORING_PRESETS["Balanced"])
-    candidates, blurry, unreadable = [], [], 0
-    for p in image_paths:
+# --- metrics <-> JSON (so the browser can cache them and re-rank instantly) --
+def _metrics_to_dict(c: PhotoCandidate) -> dict:
+    return {
+        "filename": c.path.name,
+        "sharpness": c.sharpness,
+        "detail_ratio": c.detail_ratio,
+        "contrast": c.contrast,
+        "brightness_mean": c.brightness_mean,
+        "exposure_balance": c.exposure_balance,
+        "subject_sharpness": c.subject_sharpness,
+        "face_score": c.face_score,
+        "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
+    }
+
+
+def _dict_to_candidate(d: dict) -> PhotoCandidate:
+    ph = d.get("phash")
+    return PhotoCandidate(
+        path=Path(d.get("filename", "")),
+        sharpness=float(d.get("sharpness", 0.0)),
+        detail_ratio=float(d.get("detail_ratio", 0.0)),
+        contrast=float(d.get("contrast", 0.0)),
+        brightness_mean=float(d.get("brightness_mean", 0.0)),
+        exposure_balance=float(d.get("exposure_balance", 0.0)),
+        subject_sharpness=float(d.get("subject_sharpness", 0.0)),
+        face_score=float(d.get("face_score", 0.0)),
+        perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
+    )
+
+
+def _cpu_workers(n_items: int) -> int:
+    # Metrics ops (OpenCV, PIL, numpy, YuNet) release the GIL, so threads give
+    # real parallelism. Capped to stay within the free-tier memory budget.
+    return max(1, min(4, os.cpu_count() or 2, n_items))
+
+
+def compute_metrics_batch(image_paths) -> list[dict]:
+    """Compute per-image metrics in PARALLEL. Each dict is JSON-serializable and
+    self-contained, so the browser can cache it and re-rank (change sliders)
+    without re-uploading or recomputing. Unreadable images -> {'unreadable': True}."""
+    paths = list(image_paths)
+    if not paths:
+        return []
+
+    def work(p):
         m = compute_metrics(p)
         if m is None:
-            unreadable += 1
-        elif m.sharpness < blur_threshold:
-            blurry.append(m)
-        else:
-            candidates.append(m)
-    scored = add_scores(candidates, weights)
-    unique, dup_map = remove_duplicates(scored, duplicate_threshold)
-    unique.sort(key=lambda c: -c.score)
-    selected = unique[:top_n]
+            return {"filename": Path(p).name, "unreadable": True}
+        return _metrics_to_dict(m)
+
+    workers = _cpu_workers(len(paths))
+    if workers == 1:
+        return [work(p) for p in paths]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(work, paths))
+
+
+def _assemble_result(total, blurry, unreadable, selected, dup_map):
     dup_count = sum(len(v) for v in dup_map.values())
 
     def cand_dict(c, with_dupes=False):
@@ -249,13 +294,41 @@ def cull(image_paths, blur_threshold=40.0, duplicate_threshold=2, top_n=35, pres
         return d
 
     return {
-        "total": len(image_paths),
+        "total": total,
         "blurry_removed": len(blurry),
         "duplicates_removed": dup_count,
         "unreadable_skipped": unreadable,
         "keepers": [cand_dict(c, with_dupes=True) for c in selected],
         "rejected": [c.path.name for c in sorted(blurry, key=lambda c: -c.sharpness)],
     }
+
+
+def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, preset="Balanced"):
+    """Turn pre-computed metrics into keepers. Cheap + fast (no image work) — this
+    is what runs when the user tweaks the keeper/blur/duplicate/preset controls."""
+    weights = SCORING_PRESETS.get(preset, SCORING_PRESETS["Balanced"])
+    total = len(metrics)
+    unreadable = sum(1 for m in metrics if m.get("unreadable"))
+    candidates, blurry = [], []
+    for m in metrics:
+        if m.get("unreadable"):
+            continue
+        c = _dict_to_candidate(m)
+        if c.sharpness < blur_threshold:
+            blurry.append(c)
+        else:
+            candidates.append(c)
+    scored = add_scores(candidates, weights)
+    unique, dup_map = remove_duplicates(scored, duplicate_threshold)
+    unique.sort(key=lambda c: -c.score)
+    selected = unique[:top_n]
+    return _assemble_result(total, blurry, unreadable, selected, dup_map)
+
+
+def cull(image_paths, blur_threshold=40.0, duplicate_threshold=2, top_n=35, preset="Balanced"):
+    """One-shot cull (compute + rank). Kept for the legacy /cull-upload path."""
+    metrics = compute_metrics_batch(image_paths)
+    return rank_metrics(metrics, blur_threshold, duplicate_threshold, top_n, preset)
 
 
 def create_white_canvas(src: Path, out: Path, canvas_w: int, canvas_h: int, padding: int):

@@ -77,6 +77,14 @@ class CanvasRequest(BaseModel):
     padding: int = 20
 
 
+class RankRequest(BaseModel):
+    metrics: list[dict]
+    blur_threshold: float = 40.0
+    duplicate_threshold: int = 2
+    top_n: int = 35
+    preset: str = "Balanced"
+
+
 # --- endpoints -------------------------------------------------------------
 @app.get("/health")
 def health():
@@ -157,6 +165,36 @@ async def cull_upload(
         if not paths:
             raise HTTPException(400, "No files uploaded")
         return engine.cull(paths, blur_threshold, duplicate_threshold, top_n, preset)
+
+
+# Sync def on purpose: FastAPI runs it in a worker thread, so concurrent chunk
+# uploads from the browser overlap instead of blocking the event loop.
+@app.post("/score-upload")
+def score_upload(files: list[UploadFile] = File(...)):
+    """Compute + return raw per-image metrics (parallel). The browser caches
+    these and calls /rank to (re)build keepers instantly when sliders change —
+    no re-upload, no recompute."""
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for f in files:
+            dest = Path(tmp) / Path(f.filename or "photo.jpg").name
+            dest.write_bytes(f.file.read())
+            paths.append(dest)
+        if not paths:
+            raise HTTPException(400, "No files uploaded")
+        return {"metrics": engine.compute_metrics_batch(paths)}
+
+
+@app.post("/rank")
+def rank(req: RankRequest):
+    """Rank pre-computed metrics into keepers. Tiny payload, near-instant."""
+    return engine.rank_metrics(
+        req.metrics,
+        blur_threshold=req.blur_threshold,
+        duplicate_threshold=req.duplicate_threshold,
+        top_n=req.top_n,
+        preset=req.preset,
+    )
 
 
 @app.post("/canvas")
