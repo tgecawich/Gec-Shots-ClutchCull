@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resizeImage, mapLimit } from "@/lib/resize";
 import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type CullSettings, type Metric } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
-import { downloadZip, triggerDownload } from "@/lib/zip";
+import { downloadZip, downloadZipBatched, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
 import { trackSessionStart, trackPhotos, trackExport, trackEmail } from "@/lib/tracking";
 
@@ -159,11 +159,21 @@ export default function AppPage() {
     setSelected((prev) => { const s = new Set(prev); group.forEach((n) => s.delete(n)); s.add(chosen); return s; });
 
   async function exportKeepers() {
-    setBusy("Zipping full-resolution keepers…");
     const entries = [...selected].map((n, i) => ({ name: `${String(i + 1).padStart(2, "0")}_${n}`, blob: filesMap[n] as Blob })).filter((e) => e.blob);
-    await downloadZip(entries, "clutchcull_keepers.zip");
-    logExport();
-    setBusy("");
+    if (!entries.length) return;
+    setBusy("Zipping full-resolution keepers…");
+    try {
+      // Split big keeper sets into multiple ZIPs so a huge single blob can't
+      // crash the tab. Each part downloads on its own.
+      await downloadZipBatched(entries, "clutchcull_keepers", 1_200_000_000, 150, (part, total) => {
+        setBusy(total > 1 ? `Zipping keepers — part ${part} of ${total}…` : "Zipping full-resolution keepers…");
+      });
+      logExport();
+    } catch {
+      setError("The keeper ZIP was too large for the browser to build at once. Try selecting fewer keepers, or download the list/scores instead.");
+    } finally {
+      setBusy("");
+    }
   }
   function exportList() {
     triggerDownload(new Blob([[...selected].join("\n") + "\n"], { type: "text/plain" }), "clutchcull_keepers.txt");
