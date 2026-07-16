@@ -23,7 +23,7 @@ export async function mapLimit<T, R>(
 // much smaller copy to the server: faster upload + faster face detection.
 export async function resizeImage(
   file: File,
-  maxDim = 1400,
+  maxDim = 1200, // the server analyzes at 1200px anyway — sending bigger is pure waste
   quality = 0.72
 ): Promise<File> {
   try {
