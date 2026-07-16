@@ -3141,7 +3141,7 @@ def render_cull_workspace(email: str) -> None:
     top_n = st.sidebar.slider(
         "How many keepers do you want?",
         1,
-        100,
+        300,
         35,
         1,
         help="The most photos ClutchCull will shortlist for your final review.",

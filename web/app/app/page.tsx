@@ -191,7 +191,7 @@ export default function AppPage() {
                 <select value={settings.preset} onChange={(e) => set("preset", e.target.value)}>{PRESETS.map((p) => <option key={p}>{p}</option>)}</select>
               </label>
               <label className="control"><span>Keepers: <b>{settings.top_n}</b></span>
-                <input type="range" min={1} max={100} value={settings.top_n} onChange={(e) => set("top_n", +e.target.value)} /></label>
+                <input type="range" min={1} max={300} value={settings.top_n} onChange={(e) => set("top_n", +e.target.value)} /></label>
               <label className="control"><span>Sharpness strictness: <b>{settings.blur}</b></span>
                 <input type="range" min={0} max={100} value={settings.blur} onChange={(e) => set("blur", +e.target.value)} /></label>
               <label className="control"><span>Remove duplicates: <b>{settings.dupes}</b></span>
