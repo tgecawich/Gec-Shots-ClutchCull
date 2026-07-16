@@ -109,12 +109,23 @@ export default function AppPage() {
         setCanRerank(true);
         setPhase("Ranking your keepers…"); setProgress(0.95);
         finishCull(await rankMetrics(metrics, settings), t0, true);
-      } catch {
-        // Fallback for an older API that lacks /score-upload: one-shot cull.
-        finishCull(await cullUpload(resized, settings), t0, true);
+      } catch (e) {
+        // Only fall back to a single-request cull for SMALL batches — a big one
+        // in one request would overwhelm the free server. Big batches surface
+        // the error (the chunk uploader already retried each piece).
+        if (resized.length <= 40) {
+          finishCull(await cullUpload(resized, settings), t0, true);
+        } else {
+          throw e;
+        }
       }
     } catch (e: any) {
-      setError(e?.message || "Something went wrong");
+      const msg = e?.message || "Something went wrong";
+      setError(
+        fileCount > 150
+          ? `${msg}. Big shoots can strain the free server — try culling in two smaller batches, or upgrade the API for full-size shoots in one go.`
+          : msg
+      );
     } finally {
       setLoading(false); setPhase("");
     }

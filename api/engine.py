@@ -258,8 +258,10 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
 
 def _cpu_workers(n_items: int) -> int:
     # Metrics ops (OpenCV, PIL, numpy, YuNet) release the GIL, so threads give
-    # real parallelism. Capped to stay within the free-tier memory budget.
-    return max(1, min(4, os.cpu_count() or 2, n_items))
+    # real parallelism. Capped low (and overridable) to stay within the tight
+    # free-tier memory budget — each worker holds a decoded image + detector.
+    cap = int(os.getenv("CLUTCHCULL_WORKERS", "2"))
+    return max(1, min(cap, os.cpu_count() or 2, n_items))
 
 
 def compute_metrics_batch(image_paths) -> list[dict]:
