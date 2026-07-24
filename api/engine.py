@@ -20,6 +20,11 @@ from PIL import Image, ImageOps
 
 RESAMPLING = getattr(Image, "Resampling", Image)
 METRICS_MAX_WIDTH = 1200
+# Focus-miss guard: if the subject region is much softer than the overall
+# frame, focus probably landed on the background — demote it. Tunable at runtime.
+FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
+FOCUS_FLOOR = float(os.getenv("CLUTCHCULL_FOCUS_FLOOR", "0.25"))  # worst-case multiplier for a clear miss
+NOFACE_TRUST = float(os.getenv("CLUTCHCULL_NOFACE_TRUST", "0.85"))  # discount unverified (no-face) subjects
 # Faces are large features, so detection stays accurate on a downscaled copy —
 # and YuNet cost grows fast with resolution (~3x from 800px to 1200px). We
 # detect small, then scale boxes back up; sharpness still uses full metrics res.
@@ -56,6 +61,7 @@ class PhotoCandidate:
     exposure_balance: float = 0.0
     subject_sharpness: float = 0.0
     face_score: float = 0.0
+    has_face: bool = False
     perceptual_hash: imagehash.ImageHash | None = None
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -190,7 +196,7 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     return PhotoCandidate(
         path=path, sharpness=sharpness, detail_ratio=detail, contrast=contrast,
         brightness_mean=brightness, exposure_balance=exposure,
-        subject_sharpness=subject_sharp, face_score=face_score,
+        subject_sharpness=subject_sharp, face_score=face_score, has_face=bool(faces),
         perceptual_hash=imagehash.phash(preview),
     )
 
@@ -219,14 +225,33 @@ def add_scores(cands, weights):
     exp = [c.exposure_balance for c in cands]
     fac = [min(1.0, max(0.0, c.face_score)) for c in cands]
     for i, c in enumerate(cands):
-        c.score_breakdown = {"sharpness": subj[i], "faces": fac[i], "detail": det[i],
+        # Focus-miss guard: how sharp is the SUBJECT vs the whole frame? A shot
+        # where focus fell on the background (soft subject, crisp background) has
+        # a low ratio and gets its sharpness credit cut. Detail (whole-frame edge
+        # richness) is cut the same way so a crisp background can't carry a soft
+        # subject to the top.
+        focus = _focus_factor(c)
+        sharp_i = subj[i] * focus
+        detail_i = det[i] * (0.5 + 0.5 * focus)  # background detail counts less on a focus miss
+        c.score_breakdown = {"sharpness": sharp_i, "faces": fac[i], "detail": detail_i,
                              "contrast": con[i], "exposure": exp[i]}
-        c.score = 100 * (w.get("sharpness", 0) * subj[i] + w.get("faces", 0) * fac[i]
-                         + w.get("detail", 0) * det[i] + w.get("contrast", 0) * con[i]
+        c.score = 100 * (w.get("sharpness", 0) * sharp_i + w.get("faces", 0) * fac[i]
+                         + w.get("detail", 0) * detail_i + w.get("contrast", 0) * con[i]
                          + w.get("exposure", 0) * exp[i])
         top = max(c.score_breakdown.items(), key=lambda kv: kv[1])
-        c.selection_reason = _BADGE.get(top[0], "Strong pick")
+        c.selection_reason = "Soft subject" if focus < 0.55 else _BADGE.get(top[0], "Strong pick")
     return cands
+
+
+def _focus_factor(c: PhotoCandidate) -> float:
+    """1.0 when the subject is as sharp as (or sharper than) the frame; drops
+    toward FOCUS_FLOOR as the subject gets softer than the background. No-face
+    shots (subject is only a center guess) are trusted a little less."""
+    ratio = c.subject_sharpness / (c.sharpness + 1e-6)
+    factor = FOCUS_FLOOR + (1.0 - FOCUS_FLOOR) * min(1.0, ratio / FOCUS_MIN)
+    if not c.has_face:
+        factor *= NOFACE_TRUST
+    return max(FOCUS_FLOOR * (NOFACE_TRUST if not c.has_face else 1.0), min(1.0, factor))
 
 
 def remove_duplicates(cands, threshold):
@@ -258,6 +283,7 @@ def _metrics_to_dict(c: PhotoCandidate) -> dict:
         "exposure_balance": c.exposure_balance,
         "subject_sharpness": c.subject_sharpness,
         "face_score": c.face_score,
+        "has_face": c.has_face,
         "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
     }
 
@@ -273,6 +299,7 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
         exposure_balance=float(d.get("exposure_balance", 0.0)),
         subject_sharpness=float(d.get("subject_sharpness", 0.0)),
         face_score=float(d.get("face_score", 0.0)),
+        has_face=bool(d.get("has_face", False)),
         perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
     )
 
