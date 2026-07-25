@@ -309,9 +309,10 @@ export default function AppPage() {
                 <h2 className="results-h2">Your keepers <span className="muted-note">— tap to include / exclude</span></h2>
                 <div className="keeper-grid">
                   {results.keepers.map((k, i) => (
-                    <button className={`keeper${selected.has(k.filename) ? " sel" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
+                    <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
                       {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} /> : <div className="keeper-ph" />}
                       <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
+                      {k.soft && <span className="soft-flag" title="Subject looks soft — double-check before keeping">⚠ Soft</span>}
                       <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
                     </button>
                   ))}

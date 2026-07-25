@@ -6,6 +6,7 @@ export type Keeper = {
   filename: string;
   score: number;
   badge: string;
+  soft?: boolean;
   breakdown: Record<string, number>;
   duplicates?: Dupe[];
 };

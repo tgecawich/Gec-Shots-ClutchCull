@@ -25,6 +25,15 @@ METRICS_MAX_WIDTH = 1200
 FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
 FOCUS_FLOOR = float(os.getenv("CLUTCHCULL_FOCUS_FLOOR", "0.25"))  # worst-case multiplier for a clear miss
 NOFACE_TRUST = float(os.getenv("CLUTCHCULL_NOFACE_TRUST", "0.85"))  # discount unverified (no-face) subjects
+# Sharpness GATE: for sports, a soft subject is a delete no matter how well
+# exposed/composed. So sharpness multiplies the whole score instead of merely
+# adding to it — a soft shot can't buy its way to the top with light + detail.
+# Judged in ABSOLUTE terms (subject sharpness vs the blur floor) so a batch of
+# genuinely sharp keepers isn't penalized just for having a "least sharp" one.
+SHARP_GATE_SPAN = float(os.getenv("CLUTCHCULL_SHARP_GATE_SPAN", "6.0"))    # full credit at blur_floor * this
+SHARP_GATE_FLOOR = float(os.getenv("CLUTCHCULL_SHARP_GATE_FLOOR", "0.3"))  # worst-case score multiplier
+SHARP_SOFT_MARK = float(os.getenv("CLUTCHCULL_SOFT_MARK", "1.8"))     # subject sharpness below blur_floor*this -> 'soft'
+SUBJECT_REJECT = float(os.getenv("CLUTCHCULL_SUBJECT_REJECT", "0.9"))  # reject when subject sharpness < blur_floor*this
 # Faces are large features, so detection stays accurate on a downscaled copy —
 # and YuNet cost grows fast with resolution (~3x from 800px to 1200px). We
 # detect small, then scale boxes back up; sharpness still uses full metrics res.
@@ -66,6 +75,7 @@ class PhotoCandidate:
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
     selection_reason: str = ""
+    soft: bool = False
 
 
 # --- face model (downloaded once at runtime) ------------------------------
@@ -214,7 +224,12 @@ _BADGE = {"sharpness": "Sharp subject", "faces": "Clear subject", "detail": "Ric
           "contrast": "Clean contrast", "exposure": "Well-exposed"}
 
 
-def add_scores(cands, weights):
+def _effective_subject_sharpness(c: PhotoCandidate) -> float:
+    """Absolute subject sharpness, discounted when focus missed to background."""
+    return c.subject_sharpness * _focus_factor(c)
+
+
+def add_scores(cands, weights, blur_threshold=40.0):
     if not cands:
         return []
     total = sum(weights.values()) or 1.0
@@ -235,11 +250,24 @@ def add_scores(cands, weights):
         detail_i = det[i] * (0.5 + 0.5 * focus)  # background detail counts less on a focus miss
         c.score_breakdown = {"sharpness": sharp_i, "faces": fac[i], "detail": detail_i,
                              "contrast": con[i], "exposure": exp[i]}
-        c.score = 100 * (w.get("sharpness", 0) * sharp_i + w.get("faces", 0) * fac[i]
-                         + w.get("detail", 0) * detail_i + w.get("contrast", 0) * con[i]
-                         + w.get("exposure", 0) * exp[i])
-        top = max(c.score_breakdown.items(), key=lambda kv: kv[1])
-        c.selection_reason = "Soft subject" if focus < 0.55 else _BADGE.get(top[0], "Strong pick")
+        base = 100 * (w.get("sharpness", 0) * sharp_i + w.get("faces", 0) * fac[i]
+                      + w.get("detail", 0) * detail_i + w.get("contrast", 0) * con[i]
+                      + w.get("exposure", 0) * exp[i])
+        # Sharpness GATE (multiplicative, ABSOLUTE): a soft subject caps the whole
+        # score, so good light/contrast/background-detail can't rescue an out-of-
+        # focus shot. Measured against the blur floor, not the batch, so a set of
+        # genuinely sharp keepers isn't dinged for having a relatively-softer one.
+        eff = _effective_subject_sharpness(c)
+        lo, hi = blur_threshold, blur_threshold * SHARP_GATE_SPAN
+        q = 0.0 if hi <= lo else max(0.0, min(1.0, (eff - lo) / (hi - lo)))
+        gate = SHARP_GATE_FLOOR + (1.0 - SHARP_GATE_FLOOR) * q
+        c.score = base * gate
+        c.soft = eff < blur_threshold * SHARP_SOFT_MARK
+        if c.soft:
+            c.selection_reason = "Soft focus" if focus >= 0.55 else "Soft subject"
+        else:
+            top = max(c.score_breakdown.items(), key=lambda kv: kv[1])
+            c.selection_reason = _BADGE.get(top[0], "Strong pick")
     return cands
 
 
@@ -338,6 +366,7 @@ def _assemble_result(total, blurry, unreadable, selected, dup_map):
 
     def cand_dict(c, with_dupes=False):
         d = {"filename": c.path.name, "score": round(c.score, 2), "badge": c.selection_reason,
+             "soft": bool(c.soft),
              "breakdown": {k: round(v, 3) for k, v in c.score_breakdown.items()}}
         if with_dupes:
             d["duplicates"] = [cand_dict(a) for a in dup_map.get(c.path.name, [])]
@@ -364,11 +393,14 @@ def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, 
         if m.get("unreadable"):
             continue
         c = _dict_to_candidate(m)
-        if c.sharpness < blur_threshold:
+        # Reject if the whole frame is blurry (original gate) OR the SUBJECT
+        # itself is below the sharpness floor — a soft subject is a delete even
+        # when the background is crisp.
+        if c.sharpness < blur_threshold or _effective_subject_sharpness(c) < blur_threshold * SUBJECT_REJECT:
             blurry.append(c)
         else:
             candidates.append(c)
-    scored = add_scores(candidates, weights)
+    scored = add_scores(candidates, weights, blur_threshold)
     unique, dup_map = remove_duplicates(scored, duplicate_threshold)
     unique.sort(key=lambda c: -c.score)
     selected = unique[:top_n]

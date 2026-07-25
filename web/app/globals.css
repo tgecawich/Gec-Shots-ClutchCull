@@ -134,6 +134,10 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--mute
 .keeper { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--panel);
   transition: transform .2s ease, border-color .2s ease; }
 .keeper:hover { transform: translateY(-3px); border-color: rgba(255,138,42,0.4); }
+.keeper.soft { border-color: rgba(255,193,90,0.65); }
+.keeper .soft-flag { position: absolute; top: 8px; left: 8px; z-index: 2; font-size: 0.72rem; font-weight: 800;
+  color: #1a1200; background: linear-gradient(135deg,#ffc15a,#ff8a2a); padding: 3px 8px; border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.35); letter-spacing: 0.01em; }
 .keeper img, .keeper-ph { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; background: #1a1730; }
 .keeper-meta { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-size: 0.82rem; }
 .keeper-meta .rank { font-weight: 800; color: var(--muted); }
