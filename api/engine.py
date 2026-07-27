@@ -18,11 +18,22 @@ import imagehash
 import numpy as np
 from PIL import Image, ImageOps
 
+# OpenCV allocates scratch buffers per internal thread. We parallelize across
+# images ourselves, so internal threading only adds memory (and contention) on a
+# small box. Keep it at 1 unless explicitly overridden.
+try:
+    cv2.setNumThreads(int(os.getenv("CLUTCHCULL_CV_THREADS", "1")))
+except Exception:
+    pass
+
 RESAMPLING = getattr(Image, "Resampling", Image)
 # Blur detection is extremely resolution-sensitive: measured on the same photo,
 # sharp-vs-soft separation is only ~4x at 1200px but ~28x at 2400px (downscaling
 # is itself a blur filter, so it hides the very thing we're testing for).
-METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "2400"))
+# 1800 is the memory-safe default for a 512MB instance while still giving ~11x
+# sharp-vs-soft separation (vs only 4x at the old 1200px). Raise to 2400 (~28x)
+# via env if you move to a bigger box.
+METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "1800"))
 # Focus-miss guard: if the subject region is much softer than the overall
 # frame, focus probably landed on the background — demote it. Tunable at runtime.
 FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
@@ -61,10 +72,18 @@ YOLOX_MODEL_URL = (
     "https://github.com/opencv/opencv_zoo/raw/main/models/"
     "object_detection_yolox/object_detection_yolox_2022nov.onnx"
 )
-YOLOX_SIZE = 640
+# 416 not 640: on a 512MB box the detector's activations are the single biggest
+# memory consumer (640 -> 349MB peak, 416 -> 282MB). Sports subjects are large in
+# frame, so the smaller input costs little accuracy. Env-tunable if you size up.
+YOLOX_SIZE = int(os.getenv("CLUTCHCULL_YOLOX_SIZE", "320"))
 PERSON_CONF = float(os.getenv("CLUTCHCULL_PERSON_CONF", "0.35"))
-_person_local = threading.local()
+# ONE shared detector, not thread-local: a per-thread copy would load the whole
+# network per concurrent request and blow a 512MB box instantly. cv2 DNN forward
+# isn't thread-safe, so calls are serialized with _infer_lock — which is fine
+# because we deliberately process one image at a time on a small instance.
+_person_net = None
 _yolox_lock = threading.Lock()
+_infer_lock = threading.Lock()
 _yolox_attempted = False
 
 YUNET_MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
@@ -187,17 +206,28 @@ def ensure_yolox_model() -> bool:
             return False
 
 
+def person_detection_enabled() -> bool:
+    """Kill switch: set CLUTCHCULL_PERSON=0 to disable person detection if the
+    instance is memory-starved. Culling still works (face -> center fallback) and
+    still benefits from the higher analysis resolution."""
+    return os.getenv("CLUTCHCULL_PERSON", "1").strip().lower() not in ("0", "false", "no")
+
+
 def _get_person_net():
-    net = getattr(_person_local, "net", None)
-    if net is None:
-        if not ensure_yolox_model():
-            _person_local.net = False
-            return None
-        try:
-            _person_local.net = cv2.dnn.readNet(str(YOLOX_MODEL_PATH))
-        except Exception:
-            _person_local.net = False
-    return _person_local.net or None
+    global _person_net
+    if _person_net is None:
+        with _yolox_lock:
+            if _person_net is None:
+                if not person_detection_enabled():
+                    _person_net = False
+                elif not ensure_yolox_model():
+                    _person_net = False
+                else:
+                    try:
+                        _person_net = cv2.dnn.readNet(str(YOLOX_MODEL_PATH))
+                    except Exception:
+                        _person_net = False
+    return _person_net or None
 
 
 _YOLOX_GRID = None
@@ -227,8 +257,9 @@ def detect_persons(bgr):
         blob = cv2.dnn.blobFromImage(
             cv2.resize(bgr, (YOLOX_SIZE, YOLOX_SIZE)), 1.0, (YOLOX_SIZE, YOLOX_SIZE), swapRB=True
         )
-        net.setInput(blob)
-        out = net.forward()[0]
+        with _infer_lock:  # shared net: one inference at a time
+            net.setInput(blob)
+            out = net.forward()[0]
         grids, strides = _yolox_grid()
         xy = (out[:, 0:2] + grids) * strides
         wh = np.exp(out[:, 2:4]) * strides
@@ -262,7 +293,7 @@ def _region_sharpness(gray, x0, y0, x1, y1, tiles=4):
     if x1 - x0 < 8 or y1 - y0 < 8:
         return 0.0
     crop = gray[y0:y1, x0:x1]
-    lap = cv2.Laplacian(crop, cv2.CV_64F)
+    lap = cv2.Laplacian(crop, cv2.CV_32F)  # 32F not 64F: half the memory, same ranking
     h, w = lap.shape
     th, tw = max(1, h // tiles), max(1, w // tiles)
     vals = []
@@ -497,7 +528,9 @@ def _cpu_workers(n_items: int) -> int:
     # Metrics ops (OpenCV, PIL, numpy, YuNet) release the GIL, so threads give
     # real parallelism. Capped low (and overridable) to stay within the tight
     # free-tier memory budget — each worker holds a decoded image + detector.
-    cap = int(os.getenv("CLUTCHCULL_WORKERS", "2"))
+    # 1 by default: Render Starter is 0.5 CPU / 512MB, so extra threads buy no
+    # throughput and only add memory pressure. Raise via env on a bigger box.
+    cap = int(os.getenv("CLUTCHCULL_WORKERS", "1"))
     return max(1, min(cap, os.cpu_count() or 2, n_items))
 
 

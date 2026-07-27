@@ -88,7 +88,17 @@ class RankRequest(BaseModel):
 # --- endpoints -------------------------------------------------------------
 @app.get("/health")
 def health():
-    return {"ok": True, "r2": _r2() is not None and bool(_bucket()), "presets": list(engine.SCORING_PRESETS)}
+    """Also reports the culling config so you can confirm person detection
+    actually loaded on the deployed box (it's the memory-hungry part)."""
+    return {
+        "ok": True,
+        "r2": _r2() is not None and bool(_bucket()),
+        "presets": list(engine.SCORING_PRESETS),
+        "person_detection": engine.person_detection_enabled() and engine._get_person_net() is not None,
+        "metrics_width": engine.METRICS_MAX_WIDTH,
+        "yolox_size": engine.YOLOX_SIZE,
+        "workers": engine._cpu_workers(100),
+    }
 
 
 @app.post("/presign")
