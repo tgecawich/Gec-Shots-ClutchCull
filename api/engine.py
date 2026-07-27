@@ -19,7 +19,10 @@ import numpy as np
 from PIL import Image, ImageOps
 
 RESAMPLING = getattr(Image, "Resampling", Image)
-METRICS_MAX_WIDTH = 1200
+# Blur detection is extremely resolution-sensitive: measured on the same photo,
+# sharp-vs-soft separation is only ~4x at 1200px but ~28x at 2400px (downscaling
+# is itself a blur filter, so it hides the very thing we're testing for).
+METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "2400"))
 # Focus-miss guard: if the subject region is much softer than the overall
 # frame, focus probably landed on the background — demote it. Tunable at runtime.
 FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
@@ -49,6 +52,20 @@ SCORING_PRESETS = {
 }
 
 CANVAS_RATIOS = {"3:4": (1080, 1440), "4:5": (1080, 1350), "1:1": (1080, 1080)}
+
+# Person detector (COCO YOLOX-tiny). Sports subjects wear helmets and turn away,
+# so face detection alone can't find them — this locates the ATHLETE'S BODY, which
+# is what we must measure sharpness on.
+YOLOX_MODEL_PATH = Path(__file__).parent / "models" / "object_detection_yolox_2022nov.onnx"
+YOLOX_MODEL_URL = (
+    "https://github.com/opencv/opencv_zoo/raw/main/models/"
+    "object_detection_yolox/object_detection_yolox_2022nov.onnx"
+)
+YOLOX_SIZE = 640
+PERSON_CONF = float(os.getenv("CLUTCHCULL_PERSON_CONF", "0.35"))
+_person_local = threading.local()
+_yolox_lock = threading.Lock()
+_yolox_attempted = False
 
 YUNET_MODEL_PATH = Path(__file__).parent / "models" / "face_detection_yunet_2023mar.onnx"
 YUNET_MODEL_URL = (
@@ -148,6 +165,144 @@ def detect_faces_scaled(rgb):
     return faces
 
 
+def ensure_yolox_model() -> bool:
+    global _yolox_attempted
+    if YOLOX_MODEL_PATH.exists():
+        return True
+    with _yolox_lock:
+        if YOLOX_MODEL_PATH.exists():
+            return True
+        if _yolox_attempted:
+            return False
+        _yolox_attempted = True
+        try:
+            import requests
+
+            YOLOX_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            resp = requests.get(YOLOX_MODEL_URL, timeout=120)
+            resp.raise_for_status()
+            YOLOX_MODEL_PATH.write_bytes(resp.content)
+            return True
+        except Exception:
+            return False
+
+
+def _get_person_net():
+    net = getattr(_person_local, "net", None)
+    if net is None:
+        if not ensure_yolox_model():
+            _person_local.net = False
+            return None
+        try:
+            _person_local.net = cv2.dnn.readNet(str(YOLOX_MODEL_PATH))
+        except Exception:
+            _person_local.net = False
+    return _person_local.net or None
+
+
+_YOLOX_GRID = None
+
+
+def _yolox_grid():
+    """Grid + stride tensors for decoding YOLOX output (built once)."""
+    global _YOLOX_GRID
+    if _YOLOX_GRID is None:
+        grids, strides = [], []
+        for s in (8, 16, 32):
+            g = YOLOX_SIZE // s
+            xv, yv = np.meshgrid(np.arange(g), np.arange(g))
+            grids.append(np.stack((xv, yv), 2).reshape(-1, 2))
+            strides.append(np.full((g * g, 1), s))
+        _YOLOX_GRID = (np.concatenate(grids), np.concatenate(strides))
+    return _YOLOX_GRID
+
+
+def detect_persons(bgr):
+    """Return [(x, y, w, h, conf)] for people, in `bgr` pixel coords."""
+    net = _get_person_net()
+    if net is None:
+        return []
+    try:
+        h, w = bgr.shape[:2]
+        blob = cv2.dnn.blobFromImage(
+            cv2.resize(bgr, (YOLOX_SIZE, YOLOX_SIZE)), 1.0, (YOLOX_SIZE, YOLOX_SIZE), swapRB=True
+        )
+        net.setInput(blob)
+        out = net.forward()[0]
+        grids, strides = _yolox_grid()
+        xy = (out[:, 0:2] + grids) * strides
+        wh = np.exp(out[:, 2:4]) * strides
+        cls_scores = out[:, 5:]
+        scores = out[:, 4] * cls_scores.max(1)
+        keep = (cls_scores.argmax(1) == 0) & (scores > PERSON_CONF)  # class 0 = person
+        if not keep.any():
+            return []
+        xy, wh, sc = xy[keep], wh[keep], scores[keep]
+        boxes = np.stack([xy[:, 0] - wh[:, 0] / 2, xy[:, 1] - wh[:, 1] / 2, wh[:, 0], wh[:, 1]], 1)
+        idx = cv2.dnn.NMSBoxes(boxes.tolist(), sc.tolist(), PERSON_CONF, 0.45)
+        if len(idx) == 0:
+            return []
+        sx, sy = w / float(YOLOX_SIZE), h / float(YOLOX_SIZE)
+        return [
+            (float(boxes[i][0] * sx), float(boxes[i][1] * sy),
+             float(boxes[i][2] * sx), float(boxes[i][3] * sy), float(sc[i]))
+            for i in np.array(idx).flatten()
+        ]
+    except Exception:
+        return []
+
+
+def _region_sharpness(gray, x0, y0, x1, y1, tiles=4):
+    """Sharpness of a region, robust to a few crisp background edges sneaking into
+    the box. Plain variance is dominated by the single sharpest thing present, so
+    we tile the region and take a high percentile — 'is most of the subject sharp?'
+    rather than 'is anything in this box sharp?'."""
+    x0, y0 = max(0, int(x0)), max(0, int(y0))
+    x1, y1 = min(gray.shape[1], int(x1)), min(gray.shape[0], int(y1))
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return 0.0
+    crop = gray[y0:y1, x0:x1]
+    lap = cv2.Laplacian(crop, cv2.CV_64F)
+    h, w = lap.shape
+    th, tw = max(1, h // tiles), max(1, w // tiles)
+    vals = []
+    for ty in range(0, h - th + 1, th):
+        for tx in range(0, w - tw + 1, tw):
+            vals.append(lap[ty:ty + th, tx:tx + tw].var())
+    if not vals:
+        return float(lap.var())
+    # 75th percentile: the subject's detailed areas, ignoring flat jersey/sky and
+    # without letting one sharp background sliver carry the whole frame.
+    return float(np.percentile(vals, 75))
+
+
+def _pick_subject(persons, faces, img_w, img_h):
+    """Choose the subject box: prefer a detected PERSON (works with helmets and
+    backs turned), then a face, then fall back to a center crop."""
+    cx, cy = img_w / 2.0, img_h / 2.0
+    maxd = (cx ** 2 + cy ** 2) ** 0.5 or 1.0
+
+    def score_box(x, y, bw, bh, conf):
+        bcx, bcy = x + bw / 2.0, y + bh / 2.0
+        centrality = 1.0 - min(1.0, ((bcx - cx) ** 2 + (bcy - cy) ** 2) ** 0.5 / maxd)
+        return (bw * bh) * (0.55 + 0.45 * centrality) * conf
+
+    if persons:
+        x, y, bw, bh, conf = max(persons, key=lambda p: score_box(*p))
+        pad_x, pad_y = bw * 0.05, bh * 0.05
+        subj = (x - pad_x, y - pad_y, x + bw + pad_x, y + bh + pad_y)
+        # Confidence that there's a clear subject: bigger + surer = better.
+        presence = min(1.0, (bw * bh) / (0.16 * img_w * img_h)) * conf
+        return subj, presence, "person"
+    if faces:
+        x, y, fw, fh, conf = max(faces, key=lambda f: score_box(*f))
+        subj = (x - fw * 0.6, y - fh * 0.5, x + fw * 1.6, y + fh + fh * 1.4)
+        presence = min(1.0, (fw / (0.22 * img_w)) if img_w else 0.0) * conf
+        return subj, presence, "face"
+    mw, mh = img_w * 0.225, img_h * 0.225
+    return (mw, mh, img_w - mw, img_h - mh), 0.0, "center"
+
+
 def _subject_metrics(gray, faces, img_w, img_h):
     if faces:
         cx, cy = img_w / 2.0, img_h / 2.0
@@ -195,18 +350,24 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
         return None
     rgb = np.array(preview)
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     contrast = float(gray.std())
     brightness = float(gray.mean())
     edges = cv2.Canny(gray, 100, 200)
     detail = float(np.count_nonzero(edges) / edges.size)
     exposure = max(0.0, 1.0 - abs(brightness - 127.5) / 127.5)
+    h, w = gray.shape[:2]
+    # Whole-frame sharpness, measured the same robust (tiled) way as the subject
+    # so the two are directly comparable for the focus-miss check.
+    frame_sharp = _region_sharpness(gray, 0, 0, w, h, tiles=6)
     faces = detect_faces_scaled(rgb)
-    subject_sharp, face_score = _subject_metrics(gray, faces, gray.shape[1], gray.shape[0])
+    persons = detect_persons(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    (sx0, sy0, sx1, sy1), presence, src = _pick_subject(persons, faces, w, h)
+    subject_sharp = _region_sharpness(gray, sx0, sy0, sx1, sy1)
     return PhotoCandidate(
-        path=path, sharpness=sharpness, detail_ratio=detail, contrast=contrast,
-        brightness_mean=brightness, exposure_balance=exposure,
-        subject_sharpness=subject_sharp, face_score=face_score, has_face=bool(faces),
+        path=path, sharpness=frame_sharp, detail_ratio=detail,
+        contrast=contrast, brightness_mean=brightness, exposure_balance=exposure,
+        subject_sharpness=subject_sharp, face_score=presence,
+        has_face=(src != "center"),  # subject was actually located, not guessed
         perceptual_hash=imagehash.phash(preview),
     )
 

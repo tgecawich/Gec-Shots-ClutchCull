@@ -21,9 +21,13 @@ export async function mapLimit<T, R>(
 // Analysis only needs enough resolution to rank sharpness/faces/detail — the
 // final keeper EXPORT always uses the untouched original, so we can send a
 // much smaller copy to the server: faster upload + faster face detection.
+// 2400px, NOT smaller: blur detection is highly resolution-sensitive. Measured
+// on real shoots, sharp-vs-soft separation is only ~4x at 1200px but ~28x at
+// 2400px — downscaling is itself a blur filter, so shrinking too far hides the
+// very thing we're testing for. Must match the API's CLUTCHCULL_METRICS_WIDTH.
 export async function resizeImage(
   file: File,
-  maxDim = 1200, // the server analyzes at 1200px anyway — sending bigger is pure waste
+  maxDim = 2400,
   quality = 0.72
 ): Promise<File> {
   try {
