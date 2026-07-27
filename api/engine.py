@@ -105,8 +105,9 @@ class PhotoCandidate:
     brightness_mean: float = 0.0
     exposure_balance: float = 0.0
     subject_sharpness: float = 0.0
+    frame_tiled: float = 0.0   # tiled frame sharpness — for the focus RATIO only
     face_score: float = 0.0
-    has_face: bool = False
+    has_face: bool = False     # True only if the subject was really LOCATED
     perceptual_hash: imagehash.ImageHash | None = None
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -389,13 +390,18 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     h, w = gray.shape[:2]
     # Whole-frame sharpness, measured the same robust (tiled) way as the subject
     # so the two are directly comparable for the focus-miss check.
-    frame_sharp = _region_sharpness(gray, 0, 0, w, h, tiles=6)
+    # NOTE: `sharpness` MUST stay the raw global Laplacian variance — the
+    # blur_threshold slider (default 40) is calibrated against this scale. Using
+    # a tiled percentile here silently shifted the scale and rejected entire
+    # shoots. The tiled value is kept separately, for the focus RATIO only.
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_32F).var())
+    frame_tiled = _region_sharpness(gray, 0, 0, w, h, tiles=6)
     faces = detect_faces_scaled(rgb)
     persons = detect_persons(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
     (sx0, sy0, sx1, sy1), presence, src = _pick_subject(persons, faces, w, h)
     subject_sharp = _region_sharpness(gray, sx0, sy0, sx1, sy1)
     return PhotoCandidate(
-        path=path, sharpness=frame_sharp, detail_ratio=detail,
+        path=path, sharpness=sharpness, frame_tiled=frame_tiled, detail_ratio=detail,
         contrast=contrast, brightness_mean=brightness, exposure_balance=exposure,
         subject_sharpness=subject_sharp, face_score=presence,
         has_face=(src != "center"),  # subject was actually located, not guessed
@@ -454,7 +460,9 @@ def add_scores(cands, weights, blur_threshold=40.0):
         q = 0.0 if hi <= lo else max(0.0, min(1.0, (eff - lo) / (hi - lo)))
         gate = SHARP_GATE_FLOOR + (1.0 - SHARP_GATE_FLOOR) * q
         c.score = base * gate
-        c.soft = eff < blur_threshold * SHARP_SOFT_MARK
+        # Only flag 'soft' when we actually located the subject — a guessed
+        # center crop isn't trustworthy enough to warn on.
+        c.soft = bool(c.has_face) and SHARP_SOFT_MARK > 0 and eff < blur_threshold * SHARP_SOFT_MARK
         if c.soft:
             c.selection_reason = "Soft focus" if focus >= 0.55 else "Soft subject"
         else:
@@ -467,7 +475,9 @@ def _focus_factor(c: PhotoCandidate) -> float:
     """1.0 when the subject is as sharp as (or sharper than) the frame; drops
     toward FOCUS_FLOOR as the subject gets softer than the background. No-face
     shots (subject is only a center guess) are trusted a little less."""
-    ratio = c.subject_sharpness / (c.sharpness + 1e-6)
+    # Compare like with like: both sides are tiled measures. (Comparing the
+    # tiled subject against the raw global variance mixes scales and skews low.)
+    ratio = c.subject_sharpness / (c.frame_tiled + 1e-6)
     factor = FOCUS_FLOOR + (1.0 - FOCUS_FLOOR) * min(1.0, ratio / FOCUS_MIN)
     if not c.has_face:
         factor *= NOFACE_TRUST
@@ -502,6 +512,7 @@ def _metrics_to_dict(c: PhotoCandidate) -> dict:
         "brightness_mean": c.brightness_mean,
         "exposure_balance": c.exposure_balance,
         "subject_sharpness": c.subject_sharpness,
+        "frame_tiled": c.frame_tiled,
         "face_score": c.face_score,
         "has_face": c.has_face,
         "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
@@ -518,6 +529,7 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
         brightness_mean=float(d.get("brightness_mean", 0.0)),
         exposure_balance=float(d.get("exposure_balance", 0.0)),
         subject_sharpness=float(d.get("subject_sharpness", 0.0)),
+        frame_tiled=float(d.get("frame_tiled", d.get("sharpness", 0.0))),
         face_score=float(d.get("face_score", 0.0)),
         has_face=bool(d.get("has_face", False)),
         perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
@@ -590,7 +602,16 @@ def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, 
         # Reject if the whole frame is blurry (original gate) OR the SUBJECT
         # itself is below the sharpness floor — a soft subject is a delete even
         # when the background is crisp.
-        if c.sharpness < blur_threshold or _effective_subject_sharpness(c) < blur_threshold * SUBJECT_REJECT:
+        # Subject-based rejection ONLY when the subject was actually located.
+        # If we merely guessed (center fallback — which is also what happens if
+        # the detector fails under memory pressure), fall back to the plain
+        # frame blur gate. Never let a detector failure delete a whole shoot.
+        subject_bad = (
+            c.has_face
+            and SUBJECT_REJECT > 0
+            and _effective_subject_sharpness(c) < blur_threshold * SUBJECT_REJECT
+        )
+        if c.sharpness < blur_threshold or subject_bad:
             blurry.append(c)
         else:
             candidates.append(c)
