@@ -410,12 +410,24 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
 
 
 def _normalize(values):
+    """Robust 0-1 scaling, clipped to the 5th-95th percentile.
+
+    Plain min-max is destroyed by a single outlier: in a 500-photo shoot one
+    frame of chain-link fence or crowd texture has enormous edge variance, which
+    sets the max and collapses every other photo toward 0 — leaving only the
+    un-normalized exposure term and capping the whole shoot around 9/100.
+    Clipping to percentiles keeps real magnitude differences while ignoring
+    extremes. Small batches fall back to min-max (percentiles need samples)."""
     if not values:
         return []
-    lo, hi = min(values), max(values)
+    arr = np.asarray(values, dtype=float)
+    if arr.size >= 8:
+        lo, hi = float(np.percentile(arr, 5)), float(np.percentile(arr, 95))
+    else:
+        lo, hi = float(arr.min()), float(arr.max())
     if hi - lo < 1e-9:
         return [0.5] * len(values)
-    return [(v - lo) / (hi - lo) for v in values]
+    return [float(v) for v in np.clip((arr - lo) / (hi - lo), 0.0, 1.0)]
 
 
 _BADGE = {"sharpness": "Sharp subject", "faces": "Clear subject", "detail": "Rich detail",
