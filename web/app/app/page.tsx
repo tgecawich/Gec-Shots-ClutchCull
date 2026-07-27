@@ -92,28 +92,26 @@ export default function AppPage() {
       }
 
       setResults(null);
-      setProgress(0); setPhase("Optimizing your photos in the browser…");
+      setProgress(0); setPhase("Analyzing your shoot with AI…");
       const files = Object.values(filesMap);
-      let done = 0;
-      const resized = await mapLimit(files, 6, async (f) => {
-        const r = await resizeImage(f);
-        done++; setProgress((done / files.length) * 0.3);
-        return r;
-      });
-
-      setPhase("Analyzing your shoot with AI…");
       try {
-        // Score once (chunked, concurrent, real progress), cache, then rank.
-        const metrics = await scoreUpload(resized, (d, t) => setProgress(0.3 + (d / t) * 0.62));
+        // Each chunk is resized right before it uploads (not all up front), so
+        // browser memory stays flat no matter how big the shoot is.
+        const metrics = await scoreUpload(
+          files,
+          (d, t) => setProgress((d / t) * 0.92),
+          resizeImage
+        );
         metricsRef.current = { key: fileKey, metrics };
         setCanRerank(true);
         setPhase("Ranking your keepers…"); setProgress(0.95);
         finishCull(await rankMetrics(metrics, settings), t0, true);
       } catch (e) {
         // Only fall back to a single-request cull for SMALL batches — a big one
-        // in one request would overwhelm the free server. Big batches surface
-        // the error (the chunk uploader already retried each piece).
-        if (resized.length <= 40) {
+        // in one request would overwhelm the server. Big batches surface the
+        // error (the chunk uploader already retried each piece).
+        if (files.length <= 40) {
+          const resized = await mapLimit(files, 3, resizeImage);
           finishCull(await cullUpload(resized, settings), t0, true);
         } else {
           throw e;

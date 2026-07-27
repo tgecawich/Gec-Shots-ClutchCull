@@ -1,3 +1,5 @@
+import { mapLimit } from "./resize";
+
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:7860";
 
 export type Dupe = { filename: string; score: number; badge: string };
@@ -53,6 +55,8 @@ export async function cullUpload(files: File[], s: CullSettings): Promise<CullRe
 // changing sliders re-ranks instantly (no re-upload, no recompute).
 export type Metric = { filename: string; unreadable?: boolean; [k: string]: unknown };
 
+// Decoding a 27MP original costs ~105MB of RAM, so only a few at a time.
+const PREPARE_CONCURRENCY = 3;
 const SCORE_CHUNK = 8; // images per upload request — small so a chunk can't OOM the free tier
 const SCORE_CONCURRENCY = 2; // requests in flight (pipelines upload + analysis)
 const CHUNK_RETRIES = 4; // survive a free-tier restart / transient blip
@@ -91,7 +95,8 @@ async function scoreChunk(chunk: File[]): Promise<Metric[]> {
 // hit a single-request timeout, and a transient failure retries automatically.
 export async function scoreUpload(
   files: File[],
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  prepare?: (f: File) => Promise<File>
 ): Promise<Metric[]> {
   const chunks: File[][] = [];
   for (let i = 0; i < files.length; i += SCORE_CHUNK) chunks.push(files.slice(i, i + SCORE_CHUNK));
@@ -101,7 +106,13 @@ export async function scoreUpload(
   async function worker() {
     while (idx < chunks.length) {
       const chunk = chunks[idx++];
-      out.push(...(await scoreChunk(chunk)));
+      // Resize THIS chunk only, right before uploading it, then let it be
+      // collected. Holding every resized copy (and decoding 6 full-res frames
+      // at once) made peak memory scale with shoot size — a 27MP original costs
+      // ~105MB decoded, so a 500-photo shoot could spike past 700MB and crash
+      // the tab. Streaming per chunk keeps usage flat at any shoot size.
+      const ready = prepare ? await mapLimit(chunk, PREPARE_CONCURRENCY, prepare) : chunk;
+      out.push(...(await scoreChunk(ready)));
       done += chunk.length;
       onProgress?.(done, files.length);
     }
