@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -44,7 +45,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={jakarta.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Cookieless traffic analytics — visitors, referrers, devices.
+            Covers the landing page too, which previously tracked nothing. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
