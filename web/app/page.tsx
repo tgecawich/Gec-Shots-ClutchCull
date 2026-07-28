@@ -152,6 +152,19 @@ export default async function Home() {
             <span><span className="check">✓</span> Photos stay private</span>
           </div>
 
+          {/* Live proof, above the fold — visible the moment the page opens. */}
+          <div className="hero-impact" id="impact">
+            <div className="sec-tag"><span className="pulse" />Live impact — updating in real time</div>
+            <div className="stats" style={{ margin: "14px 0 0" }}>
+              {dash.map((s) => (
+                <div className="stat" key={s.lbl}>
+                  <div className="num">{s.num}</div>
+                  <div className="lbl">{s.lbl}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="mock">
             <div className="mock-bar"><i /><i /><i /><span className="url">clutchcull.app</span></div>
             <div className="mock-body">
@@ -165,24 +178,6 @@ export default async function Home() {
           </div>
         </div>
       </header>
-
-      <section className="section" id="impact">
-        <div className="wrap">
-          <div className="sec-head">
-            <span className="sec-tag"><span className="pulse" />Live proof</span>
-            <h2>Impact Dashboard</h2>
-            <p>Real photographers, real shoots — a live look at how much time ClutchCull has saved.</p>
-          </div>
-          <div className="stats" style={{ margin: 0 }}>
-            {dash.map((s) => (
-              <div className="stat" key={s.lbl}>
-                <div className="num">{s.num}</div>
-                <div className="lbl">{s.lbl}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section className="section" id="features">
         <div className="wrap">

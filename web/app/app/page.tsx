@@ -39,6 +39,7 @@ export default function AppPage() {
   const [nudge, setNudge] = useState(false);
   const [minutesLogged, setMinutesLogged] = useState(false);
   const [canRerank, setCanRerank] = useState(false);
+  const [canvasCounted, setCanvasCounted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasInputRef = useRef<HTMLInputElement>(null);
   // Cached per-image metrics + the file set they belong to, so slider changes
@@ -204,12 +205,16 @@ export default function AppPage() {
       const f = filesMap[n]; if (!f) continue;
       try { const blob = await makeCanvas(f, ratio, padding); out.push({ name: `canvas_${n.replace(/\.\w+$/, "")}.jpg`, url: URL.createObjectURL(blob), blob }); } catch {}
     }
-    setCanvases(out); setBusy("");
+    setCanvases(out); setCanvasCounted(false); setBusy("");
   }
   async function downloadCanvases() {
+    if (!canvases.length) return;
     setBusy("Zipping canvas posts…");
     await downloadZip(canvases.map((c) => ({ name: c.name, blob: c.blob })), "clutchcull_canvas.zip");
-    logExport();
+    logExport(); // counts as an export
+    // Canvas posts are photos processed too — counted once per generated batch,
+    // so re-downloading the same set doesn't inflate the dashboard.
+    if (!canvasCounted) { trackPhotos(canvases.length, email); setCanvasCounted(true); }
     setBusy("");
   }
   const saveEmail = () => { const e = email.trim(); if (e) { trackEmail(e); setEmailSaved(true); } };
