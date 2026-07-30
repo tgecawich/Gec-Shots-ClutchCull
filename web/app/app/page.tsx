@@ -13,7 +13,9 @@ const BADGE_ICON: Record<string, string> = {
   "Sharp subject": "⚡", "Clear subject": "🎯", "Rich detail": "🔍",
   "Clean contrast": "🌗", "Well-exposed": "☀️", "Strong pick": "✅",
 };
-const APP_LINK = "https://gec-shots-clutchcull.vercel.app";
+// Real deployed domain. The previous value (gec-shots-clutchcull, no hyphen)
+// was dead — every mobile visitor was told to open a 404.
+const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
 
 export default function AppPage() {
   const [filesMap, setFilesMap] = useState<Record<string, File>>({});

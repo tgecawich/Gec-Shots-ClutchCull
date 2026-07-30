@@ -10,8 +10,12 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 // SEO: real title/description/OG so searching "ClutchCull" surfaces the site.
+// Use the real deployed domain — clutchcull.app does not resolve, which broke
+// Open Graph link previews when the site was shared on social.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://clutchcull.app"),
+  metadataBase: new URL(SITE_URL),
   title: "ClutchCull — Free AI Photo Culling for Sports Photographers",
   description:
     "ClutchCull finds your best sports photos in minutes. AI subject detection cuts blurry frames and duplicates and ranks your sharpest keepers. Free, no sign-up, by Gec Shots.",
@@ -29,7 +33,7 @@ export const metadata: Metadata = {
     title: "ClutchCull — Find your best shots in minutes, not hours",
     description:
       "Free AI photo culling for sports photographers. Cut blurry frames and duplicates, keep your sharpest shots.",
-    url: "https://clutchcull.app",
+    url: SITE_URL,
     siteName: "ClutchCull",
     images: ["/og.png"],
     type: "website",
