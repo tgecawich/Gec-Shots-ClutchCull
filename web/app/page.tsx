@@ -193,6 +193,9 @@ export default async function Home() {
             Drop a full game shoot in. ClutchCull&apos;s AI locks onto the athlete, cuts blurry
             frames and duplicates, and ranks your sharpest keepers — automatically.
           </p>
+          <p className="hero-promise">
+            Saving you hours — so you can spend more time out taking photos and editing.
+          </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href={APP_URL}>Cull my shoot free →</a>
             <a className="btn btn-ghost" href="#how">See how it works</a>

@@ -45,6 +45,9 @@ nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px);
 .eyebrow .pulse, .sec-tag .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 10px var(--orange); }
 h1.hero-title { font-size: clamp(2.6rem, 6.5vw, 4.6rem); font-weight: 800; line-height: 1.02; letter-spacing: -0.04em; }
 .hero-sub { color: var(--muted); font-size: clamp(1.05rem, 2vw, 1.3rem); margin: 22px auto 0; max-width: 620px; line-height: 1.6; }
+/* The payoff line — brighter and heavier than the sub so it reads as the promise, not more detail. */
+.hero-promise { color: var(--ink); font-weight: 600; font-size: clamp(1rem, 1.7vw, 1.15rem);
+  margin: 14px auto 0; max-width: 620px; line-height: 1.55; }
 .hero-cta { display: flex; gap: 14px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
 .hero-trust { margin-top: 26px; color: var(--muted); font-size: 0.9rem; font-weight: 600; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
 .hero-trust span { display: inline-flex; align-items: center; gap: 7px; }
