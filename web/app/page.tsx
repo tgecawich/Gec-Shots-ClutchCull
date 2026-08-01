@@ -3,6 +3,17 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "/app";
 const SHEET_CSV =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv";
 
+// Photographers who used the original Streamlit version, before the Next.js
+// rebuild. Recorded here as a constant because the shared Google Sheet only kept
+// partial data for that period: Streamlit minted a NEW session_id on every visit
+// (and re-logged session_start on every rerun), so its ids can't be counted as
+// people. Sourced from the original app's own user count, not derived from the
+// sheet — anything after LEGACY_CUTOVER is counted live below.
+const LEGACY_PHOTOGRAPHERS = 270;
+const LEGACY_CUTOVER = "2026-07-01";
+// Rolling window for the "since launch" strip, so it stays current on its own.
+const RECENT_WINDOW_DAYS = 7;
+
 // Live Impact Dashboard — fetched server-side from the shared Google Sheet
 // (same data source as the original app), so it stays visible and current.
 async function getImpact() {
@@ -12,15 +23,49 @@ async function getImpact() {
     const rows = (await res.text()).trim().split(/\r?\n/).map((r) => r.split(","));
     const header = rows[0].map((h) => h.trim().toLowerCase().replace(/ /g, "_"));
     const ci = (n: string) => header.indexOf(n);
-    const iE = ci("event_type"), iP = ci("photos_processed"), iX = ci("exports"), iM = ci("minutes_saved");
-    let sessions = 0, photos = 0, exports = 0, minutes = 0;
+    const iT = ci("timestamp"), iE = ci("event_type"), iP = ci("photos_processed"),
+      iX = ci("exports"), iM = ci("minutes_saved"), iS = ci("session_id");
+
+    // Count UNIQUE people (distinct session_id), never raw session_start rows:
+    // the old Streamlit app re-ran its script on every interaction, so a single
+    // browser logged up to 314 session_starts (799 "sessions" from 20 ids in April).
+    const firstSeen = new Map<string, number>();
+    let photos = 0, exports = 0, minutes = 0;
+    let recentPhotos = 0;
+    const now = Date.now();
+    const windowStart = now - RECENT_WINDOW_DAYS * 86400_000;
+
     for (const row of rows.slice(1)) {
-      if (iE >= 0 && row[iE] === "session_start") sessions++;
-      if (iP >= 0) photos += parseFloat(row[iP]) || 0;
+      const t = iT >= 0 ? Date.parse(row[iT]) : NaN;
+      const sid = iS >= 0 ? (row[iS] || "").trim() : "";
+      if (sid && !Number.isNaN(t)) {
+        const prev = firstSeen.get(sid);
+        if (prev === undefined || t < prev) firstSeen.set(sid, t);
+      } else if (sid && !firstSeen.has(sid)) {
+        firstSeen.set(sid, NaN);
+      }
+      const p = iP >= 0 ? parseFloat(row[iP]) || 0 : 0;
+      photos += p;
+      if (!Number.isNaN(t) && t >= windowStart) recentPhotos += p;
       if (iX >= 0) exports += parseFloat(row[iX]) || 0;
       if (iM >= 0) minutes += parseFloat(row[iM]) || 0;
     }
-    return { sessions, photos, exports, hours: minutes / 60 };
+
+    // Only count ids first seen after the Streamlit -> Next.js cutover, then add
+    // the recorded legacy figure. Counting all ids AND adding the legacy total
+    // would double-count the Apr–Jun period.
+    const cutover = Date.parse(LEGACY_CUTOVER);
+    let livePeople = 0, recentPeople = 0;
+    for (const t of firstSeen.values()) {
+      if (Number.isNaN(t) || t >= cutover) livePeople++;
+      if (!Number.isNaN(t) && t >= windowStart) recentPeople++;
+    }
+
+    return {
+      people: LEGACY_PHOTOGRAPHERS + livePeople,
+      photos, exports, hours: minutes / 60,
+      recentPeople, recentPhotos,
+    };
   } catch {
     return null;
   }
@@ -110,8 +155,8 @@ export default async function Home() {
   const impact = await getImpact();
   const dash = impact
     ? [
-        { num: impact.sessions.toLocaleString(), lbl: "Sessions" },
-        { num: Math.round(impact.photos).toLocaleString(), lbl: "Photos processed" },
+        { num: impact.people.toLocaleString(), lbl: "Photographers" },
+        { num: Math.round(impact.photos).toLocaleString(), lbl: "Photos culled" },
         { num: Math.round(impact.exports).toLocaleString(), lbl: "Exports" },
         { num: impact.hours.toFixed(1), lbl: "Hours saved" },
       ]
@@ -134,7 +179,13 @@ export default async function Home() {
 
       <header className="hero">
         <div className="wrap hero-in">
-          <div className="eyebrow"><span className="pulse" />USED BY 500+ SPORTS PHOTOGRAPHERS</div>
+          {/* Driven by real data so the claim can never drift ahead of the truth. */}
+          <div className="eyebrow">
+            <span className="pulse" />
+            {impact
+              ? `${Math.round(impact.photos).toLocaleString()} PHOTOS CULLED BY ${impact.people.toLocaleString()} PHOTOGRAPHERS`
+              : "BUILT BY A STUDENT-ATHLETE FOR SPORTS PHOTOGRAPHERS"}
+          </div>
           <h1 className="hero-title">
             Find your best shots in <span className="grad-text">minutes,</span> not hours.
           </h1>
@@ -163,6 +214,15 @@ export default async function Home() {
                 </div>
               ))}
             </div>
+            {/* Rolling window, computed live — shows current momentum without
+                going stale the way a hardcoded launch stat would. */}
+            {impact && impact.recentPeople > 0 && (
+              <div className="impact-recent">
+                🔥 <b>{impact.recentPeople.toLocaleString()}</b> new photographers and{" "}
+                <b>{Math.round(impact.recentPhotos).toLocaleString()}</b> photos culled in the last{" "}
+                {RECENT_WINDOW_DAYS} days
+              </div>
+            )}
           </div>
 
           <div className="mock">
