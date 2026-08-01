@@ -304,6 +304,38 @@ export default function AppPage() {
                   {busy && <span className="app-busy">{busy}</span>}
                 </div>
 
+                {/* Placed at peak value — right after they get their keepers, not
+                    buried at the page bottom. Offers the photographer something
+                    real (updates + tips) instead of asking a favour for our stats. */}
+                {!emailSaved ? (
+                  <div className="email-capture">
+                    <div className="ec-head">
+                      <b>📬 Want new ClutchCull features first?</b>
+                      <span>
+                        Drop your email and I&apos;ll send you new tools as they launch — plus
+                        sports-photography tips from shooting sidelines every week. Built by
+                        a student-athlete photographer, free for photographers.
+                      </span>
+                    </div>
+                    <div className="email-row">
+                      <input
+                        type="email" placeholder="you@example.com" value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveEmail(); }}
+                      />
+                      <button className="btn btn-primary" onClick={saveEmail}>Keep me posted</button>
+                    </div>
+                    <div className="ec-fine">
+                      No spam, no selling your email, unsubscribe any time. Your photos are never uploaded or shared.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="email-capture done">
+                    <b>🙌 You&apos;re on the list.</b>
+                    <span> Thanks for supporting a student-built tool — I&apos;ll only email when there&apos;s something genuinely useful.</span>
+                  </div>
+                )}
+
                 {report && (
                   <div className="report-out">
                     <img src={report} alt="Cull report" />
@@ -363,12 +395,6 @@ export default function AppPage() {
                   </>
                 )}
 
-                {!emailSaved ? (
-                  <div className="email-capture">
-                    <div><b>📊 Add your shoot to the Impact Dashboard (optional)</b><span> — email is only used for the community stats. No spam.</span></div>
-                    <div className="email-row"><input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} /><button className="btn btn-ghost" onClick={saveEmail}>Add</button></div>
-                  </div>
-                ) : <p className="app-busy">Thanks — you&apos;re counted in the impact stats. 🙌</p>}
               </section>
             )}
           </>
