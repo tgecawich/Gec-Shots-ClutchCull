@@ -63,7 +63,26 @@ export default function AppPage() {
 
   const ingest = useCallback((list: FileList | null, alsoSelect: boolean) => {
     if (!list) return;
-    const arr = Array.from(list).filter((f) => /\.(jpe?g|png|webp)$/i.test(f.name));
+    // Explain unusable files instead of silently ignoring them. Sports shooters
+    // drop RAW (.CR2/.NEF/.ARW) and iPhone users drop .HEIC — previously nothing
+    // happened at all, so the app looked broken and they left.
+    const all = Array.from(list);
+    const ok = (f: File) => /\.(jpe?g|png|webp)$/i.test(f.name);
+    const arr = all.filter(ok);
+    const bad = all.filter((f) => !ok(f));
+    if (bad.length) {
+      const exts = [...new Set(bad.map((f) => (f.name.match(/\.([^.]+)$/)?.[1] || "?").toUpperCase()))].slice(0, 4);
+      const isRaw = exts.some((e) => ["CR2", "CR3", "NEF", "ARW", "RAF", "ORF", "RW2", "DNG"].includes(e));
+      setError(
+        arr.length
+          ? `Added ${arr.length} photo${arr.length > 1 ? "s" : ""}. Skipped ${bad.length} file${bad.length > 1 ? "s" : ""} ClutchCull can't read (${exts.join(", ")}).`
+          : isRaw
+            ? `Those are RAW files (${exts.join(", ")}) — ClutchCull reads JPEG, PNG and WebP. Shoot RAW+JPEG on your camera, or export JPEGs from Lightroom and cull those, then apply your picks back to the RAWs.`
+            : `ClutchCull reads JPEG, PNG and WebP — those are ${exts.join(", ")}. On iPhone you can set Camera → Formats → Most Compatible to shoot JPEG.`
+      );
+    } else {
+      setError("");
+    }
     if (!arr.length) return;
     warmApi(); // photos added — make sure the API is awake before they cull
     if (!alsoSelect) { metricsRef.current = null; setCanRerank(false); } // new photos → cached metrics stale

@@ -127,10 +127,12 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--mute
 .dropzone:hover, .dropzone.over { border-color: var(--orange); background: rgba(255,138,42,0.06); }
 .dz-title { font-size: 1.4rem; font-weight: 800; }
 .dz-sub { color: var(--muted); margin-top: 8px; }
-.app-actions { display: flex; align-items: center; gap: 16px; margin: 22px 0; }
+.app-actions { display: flex; align-items: center; gap: 16px; margin: 22px 0; flex-wrap: wrap; }
 .app-actions .btn { font-size: 1.05rem; padding: 14px 28px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.app-error { color: #fca5a5; font-weight: 600; }
+/* Guidance for unusable files (RAW/HEIC) as well as real errors — wraps to its
+   own line so the explanation stays readable next to the Cull button. */
+.app-error { color: #fca5a5; font-weight: 600; line-height: 1.5; max-width: 62ch; flex-basis: 100%; }
 .summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 26px; }
 .chip { border: 1px solid var(--border); border-radius: 999px; padding: 8px 16px; color: var(--muted); font-weight: 600; }
 .chip b { color: var(--text); }
