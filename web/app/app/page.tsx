@@ -6,7 +6,7 @@ import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type Cu
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, downloadZipBatched, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
-import { trackSessionStart, trackPhotos, trackExport, trackEmail } from "@/lib/tracking";
+import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
 const BADGE_ICON: Record<string, string> = {
@@ -16,6 +16,10 @@ const BADGE_ICON: Record<string, string> = {
 // Real deployed domain. The previous value (gec-shots-clutchcull, no hyphen)
 // was dead — every mobile visitor was told to open a 404.
 const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
+
+// Hand-building one padded canvas post takes ~35s (measured by Gec Shots),
+// same basis as the ~15s/photo used for culling.
+const CANVAS_SECONDS_EACH = 35;
 
 export default function AppPage() {
   const [filesMap, setFilesMap] = useState<Record<string, File>>({});
@@ -233,9 +237,12 @@ export default function AppPage() {
     setBusy("Zipping canvas posts…");
     await downloadZip(canvases.map((c) => ({ name: c.name, blob: c.blob })), "clutchcull_canvas.zip");
     logExport(); // counts as an export
-    // Canvas posts are photos processed too — counted once per generated batch,
-    // so re-downloading the same set doesn't inflate the dashboard.
-    if (!canvasCounted) { trackPhotos(canvases.length, email); setCanvasCounted(true); }
+    // Canvas posts are photos processed AND real time saved — counted once per
+    // generated batch, so re-downloading the same set doesn't inflate anything.
+    if (!canvasCounted) {
+      trackCanvas(canvases.length, (canvases.length * CANVAS_SECONDS_EACH) / 60, email);
+      setCanvasCounted(true);
+    }
     setBusy("");
   }
   const saveEmail = () => { const e = email.trim(); if (e) { trackEmail(e); setEmailSaved(true); } };

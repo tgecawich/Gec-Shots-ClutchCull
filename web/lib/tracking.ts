@@ -54,8 +54,14 @@ export function trackExport(minutes: number, email = "") {
   });
 }
 
-export function trackCanvas(n: number, email = "") {
-  post({ [F.event]: "canvas_created", [F.exports]: "1", [F.photos]: String(n), [F.email]: email, [F.session]: sessionId() });
+// Building canvas posts is real work saved too, so it credits `minutes` (once
+// per batch). No `exports` here — downloading the batch logs that separately,
+// so one canvas batch can't be counted as two exports.
+export function trackCanvas(n: number, minutes: number, email = "") {
+  post({
+    [F.event]: "canvas_created", [F.photos]: String(n),
+    [F.minutes]: minutes.toFixed(2), [F.email]: email, [F.session]: sessionId(),
+  });
 }
 
 export function trackEmail(email: string) {
