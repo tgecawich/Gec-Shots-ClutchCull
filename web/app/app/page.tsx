@@ -17,9 +17,9 @@ const BADGE_ICON: Record<string, string> = {
 // was dead — every mobile visitor was told to open a 404.
 const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
 
-// Hand-building one padded canvas post takes ~35s (measured by Gec Shots),
+// Hand-building one padded canvas post takes ~60s (measured by Gec Shots),
 // same basis as the ~15s/photo used for culling.
-const CANVAS_SECONDS_EACH = 35;
+const CANVAS_SECONDS_EACH = 60;
 
 export default function AppPage() {
   const [filesMap, setFilesMap] = useState<Record<string, File>>({});
