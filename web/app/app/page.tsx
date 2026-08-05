@@ -9,6 +9,17 @@ import { makeCullReport } from "@/lib/report";
 import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
+// Visual presets — plain labels the photographer recognises, mapped to the
+// engine's internal preset names.
+const PRESET_META: { value: string; label: string; icon: string; hint: string }[] = [
+  { value: "Sports Action", label: "Sports", icon: "🏟️", hint: "Fast action, helmets, motion" },
+  { value: "Portraits", label: "Portrait", icon: "🙂", hint: "Faces and expressions first" },
+  { value: "Events", label: "Event", icon: "🎉", hint: "Mixed crowd and candids" },
+  { value: "Balanced", label: "Balanced", icon: "⚖️", hint: "Good all-round default" },
+];
+// Measured on the live Starter instance: roughly 0.5–0.85s per photo end to end.
+const SEC_PER_PHOTO_LO = 0.5;
+const SEC_PER_PHOTO_HI = 0.85;
 const BADGE_ICON: Record<string, string> = {
   "Sharp subject": "⚡", "Clear subject": "🎯", "Rich detail": "🔍",
   "Clean contrast": "🌗", "Well-exposed": "☀️", "Strong pick": "✅",
@@ -46,6 +57,10 @@ export default function AppPage() {
   const [minutesLogged, setMinutesLogged] = useState(false);
   const [canRerank, setCanRerank] = useState(false);
   const [canvasCounted, setCanvasCounted] = useState(false);
+  const [view, setView] = useState<"keepers" | "review" | "dupes" | "all">("keepers");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasInputRef = useRef<HTMLInputElement>(null);
   // Cached per-image metrics + the file set they belong to, so slider changes
@@ -63,6 +78,11 @@ export default function AppPage() {
   const filtered = results ? results.blurry_removed + results.duplicates_removed : 0;
   const hoursSaved = results ? (results.total * 15) / 3600 : 0;
   const canvasNames = [...selected];
+  const estLo = Math.max(1, Math.round((fileCount * SEC_PER_PHOTO_LO) / 60));
+  const estHi = Math.max(estLo + 1, Math.round((fileCount * SEC_PER_PHOTO_HI) / 60));
+  // Burst groups: keepers that had near-identical frames removed alongside them.
+  const bursts = results ? results.keepers.filter((k) => k.duplicates && k.duplicates.length) : [];
+  const allNames = Object.keys(filesMap);
   const set = (k: keyof CullSettings, v: string | number) => setSettings((s) => ({ ...s, [k]: v }));
 
   const ingest = useCallback((list: FileList | null, alsoSelect: boolean) => {
@@ -273,92 +293,226 @@ export default function AppPage() {
       <main className="wrap" style={{ paddingBottom: 90 }}>
         {mode === "cull" ? (
           <>
-            <h1 className="app-h1">Cull your shoot</h1>
-            <p className="app-lead">Drop a full game in. AI finds your sharpest, best-framed keepers.</p>
+            {!results && (
+              <>
+                <h1 className="app-h1">Start a new cull</h1>
+                <p className="app-lead">Upload a shoot and ClutchCull will surface your strongest, sharpest frames.</p>
 
-            <div className="controls">
-              <label className="control"><span>What kind of shoot?</span>
-                <select value={settings.preset} onChange={(e) => set("preset", e.target.value)}>{PRESETS.map((p) => <option key={p}>{p}</option>)}</select>
-              </label>
-              <label className="control"><span>Keepers: <b>{settings.top_n}</b></span>
-                <input type="range" min={1} max={300} value={settings.top_n} onChange={(e) => set("top_n", +e.target.value)} /></label>
-              <label className="control"><span>Sharpness strictness: <b>{settings.blur}</b></span>
-                <input type="range" min={0} max={100} value={settings.blur} onChange={(e) => set("blur", +e.target.value)} /></label>
-              <label className="control"><span>Remove duplicates: <b>{settings.dupes}</b></span>
-                <input type="range" min={0} max={10} value={settings.dupes} onChange={(e) => set("dupes", +e.target.value)} /></label>
-            </div>
+                {/* ---- 1. Upload (the largest, most obvious step) ---- */}
+                <section className="step">
+                  <div className="step-head"><span className="step-n">1</span><h2>Upload your shoot</h2></div>
 
-            <div className="trust-banner">🔒 <b>Your photos are safe.</b> Full-res originals stay on your device — nothing is sold, shared, or used to train anything.</div>
+                  {fileCount === 0 ? (
+                    <div className={`dropzone big${dragOver ? " over" : ""}`} onClick={() => inputRef.current?.click()}
+                      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => { e.preventDefault(); setDragOver(false); ingest(e.dataTransfer.files, false); }}>
+                      <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, false)} />
+                      <div className="dz-icon">📷</div>
+                      <div className="dz-title">Drop photos or a folder here</div>
+                      <div className="dz-sub">JPEG, PNG and WebP · Originals stay on your device</div>
+                      <span className="btn btn-primary dz-btn">Choose photos</span>
+                    </div>
+                  ) : (
+                    /* Once photos are in, the uploader becomes a confidence summary. */
+                    <div className="ready-card">
+                      <div className="ready-main">
+                        <div className="ready-count">{fileCount.toLocaleString()} photos ready</div>
+                        <div className="ready-meta">
+                          {PRESET_META.find((p) => p.value === settings.preset)?.label} preset · Approximately {settings.top_n} keepers
+                        </div>
+                        <div className="ready-meta dim">Estimated processing time: {estLo}–{estHi} minutes</div>
+                      </div>
+                      <div className="ready-actions">
+                        <button className="btn btn-primary lg" disabled={loading} onClick={runCull}>
+                          {loading ? "Culling…" : `Cull ${fileCount.toLocaleString()} photos`}
+                        </button>
+                        <button className="linkish" disabled={loading} onClick={() => inputRef.current?.click()}>Add or replace photos</button>
+                        <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, false)} />
+                      </div>
+                    </div>
+                  )}
 
-            <div className={`dropzone${dragOver ? " over" : ""}`} onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); ingest(e.dataTransfer.files, false); }}>
-              <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, false)} />
-              <div className="dz-title">Drop your shoot here</div>
-              <div className="dz-sub">{fileCount ? `${fileCount} photo${fileCount > 1 ? "s" : ""} ready` : "Click or drag photos — your originals stay on your device"}</div>
-            </div>
+                  {error && <p className="app-error">{error}</p>}
 
-            {loading && (
-              <div className="cull-progress">
-                <div className="cp-track">
-                  <div className="cp-fill" style={{ width: `${Math.max(4, progress * 100)}%` }} />
-                </div>
-                <div className="cp-label">{phase} {Math.round(progress * 100)}%</div>
-              </div>
+                  {loading && (
+                    <div className="cull-progress">
+                      <div className="cp-track"><div className="cp-fill" style={{ width: `${Math.max(4, progress * 100)}%` }} /></div>
+                      <div className="cp-label">{phase} {Math.round(progress * 100)}%</div>
+                    </div>
+                  )}
+                </section>
+
+                {/* ---- 2. How it should review (visual presets + one goal) ---- */}
+                <section className="step">
+                  <div className="step-head"><span className="step-n">2</span><h2>Choose how ClutchCull should review it</h2></div>
+
+                  <div className="preset-grid">
+                    {PRESET_META.map((p) => (
+                      <button key={p.value} className={`preset${settings.preset === p.value ? " on" : ""}`} onClick={() => set("preset", p.value)}>
+                        <span className="preset-icon">{p.icon}</span>
+                        <span className="preset-label">{p.label}</span>
+                        <span className="preset-hint">{p.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="goal">
+                    <label htmlFor="keepers">How many keepers do you want?</label>
+                    <div className="goal-row">
+                      <span className="goal-pre">Approximately</span>
+                      <input id="keepers" type="number" min={1} max={300} value={settings.top_n}
+                        onChange={(e) => set("top_n", Math.max(1, Math.min(300, +e.target.value || 1)))} />
+                      <span className="goal-post">photos</span>
+                      <input className="goal-range" type="range" min={1} max={300} value={settings.top_n}
+                        onChange={(e) => set("top_n", +e.target.value)} />
+                    </div>
+                  </div>
+
+                  <button className="adv-toggle" onClick={() => setAdvOpen((v) => !v)} aria-expanded={advOpen}>
+                    {advOpen ? "▾" : "▸"} Advanced preferences
+                  </button>
+                  {advOpen && (
+                    <div className="adv-body">
+                      <label className="control"><span>Sharpness strictness: <b>{settings.blur}</b></span>
+                        <input type="range" min={0} max={100} value={settings.blur} onChange={(e) => set("blur", +e.target.value)} />
+                        <em>Higher rejects softer frames. 40 suits most shoots.</em></label>
+                      <label className="control"><span>Duplicate sensitivity: <b>{settings.dupes}</b></span>
+                        <input type="range" min={0} max={10} value={settings.dupes} onChange={(e) => set("dupes", +e.target.value)} />
+                        <em>Higher removes more near-identical burst frames.</em></label>
+                    </div>
+                  )}
+                </section>
+
+                <div className="trust-banner">🔒 <b>Your photos are safe.</b> Full-res originals stay on your device — nothing is sold, shared, or used to train anything.</div>
+              </>
             )}
-
-            <div className="app-actions">
-              <button className="btn btn-primary" disabled={!fileCount || loading} onClick={runCull}>{loading ? "Culling…" : `Cull ${fileCount || ""} photos`}</button>
-              {error && <span className="app-error">{error}</span>}
-            </div>
 
             {results && (
               <section className="results">
-                <div className="summary">
-                  <div className="chip"><b>{results.total}</b> uploaded</div>
-                  <div className="chip"><b>{results.blurry_removed}</b> soft removed</div>
-                  <div className="chip"><b>{results.duplicates_removed}</b> duplicates cut</div>
-                  <div className="chip chip-accent"><b>{selected.size}</b> selected</div>
-                </div>
-
-                <div className="export-bar">
-                  <button className="btn btn-primary" disabled={!selected.size || !!busy} onClick={exportKeepers}>⬇ Download keepers (full-res ZIP)</button>
-                  <button className="btn btn-ghost" disabled={!selected.size} onClick={exportList}>⬇ Download list (.txt)</button>
-                  <button className="btn btn-ghost" disabled={!selected.size} onClick={exportCSV}>⬇ Download scores (.csv)</button>
-                  <button className="btn btn-ghost" disabled={!!busy} onClick={buildReport}>📸 Make cull report</button>
-                  <button className="btn btn-ghost" disabled={!selected.size} onClick={() => setMode("canvas")}>📱 Instagram posts →</button>
-                  {busy && <span className="app-busy">{busy}</span>}
-                </div>
-
-                {/* Placed at peak value — right after they get their keepers, not
-                    buried at the page bottom. Offers the photographer something
-                    real (updates + tips) instead of asking a favour for our stats. */}
-                {!emailSaved ? (
-                  <div className="email-capture">
-                    <div className="ec-head">
-                      <b>📬 Want new ClutchCull features first?</b>
-                      <span>
-                        Drop your email and I&apos;ll send you new tools as they launch — plus
-                        sports-photography tips from shooting sidelines every week. Built by
-                        a student-athlete photographer, free for photographers.
-                      </span>
-                    </div>
-                    <div className="email-row">
-                      <input
-                        type="email" placeholder="you@example.com" value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") saveEmail(); }}
-                      />
-                      <button className="btn btn-primary" onClick={saveEmail}>Keep me posted</button>
-                    </div>
-                    <div className="ec-fine">
-                      No spam, no selling your email, unsubscribe any time. Your photos are never uploaded or shared.
+                {/* Sticky header: what happened + the one action they came for. */}
+                <div className="res-bar">
+                  <div className="res-sum">
+                    <div className="res-title">{results.keepers.length} keepers from {results.total} photos</div>
+                    <div className="res-sub">
+                      {results.blurry_removed} lower-ranked · {results.duplicates_removed} duplicate{results.duplicates_removed === 1 ? "" : "s"}
+                      {selected.size !== results.keepers.length && <> · <b>{selected.size} selected</b></>}
                     </div>
                   </div>
-                ) : (
-                  <div className="email-capture done">
-                    <b>🙌 You&apos;re on the list.</b>
-                    <span> Thanks for supporting a student-built tool — I&apos;ll only email when there&apos;s something genuinely useful.</span>
+                  <div className="res-act">
+                    <button className="btn btn-primary" disabled={!selected.size || !!busy} onClick={exportKeepers}>
+                      Download {selected.size} keeper{selected.size === 1 ? "" : "s"}
+                    </button>
+                    <div className="more-wrap">
+                      <button className="btn btn-ghost" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>More export options ▾</button>
+                      {moreOpen && (
+                        <div className="more-menu" onMouseLeave={() => setMoreOpen(false)}>
+                          <button disabled={!selected.size || !!busy} onClick={() => { setMoreOpen(false); exportKeepers(); }}>Download full-resolution ZIP</button>
+                          <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportList(); }}>Export filenames (.txt)</button>
+                          <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportCSV(); }}>Export scores (.csv)</button>
+                          <button disabled={!!busy} onClick={() => { setMoreOpen(false); buildReport(); }}>Create cull report</button>
+                          <button disabled={!selected.size} onClick={() => { setMoreOpen(false); setMode("canvas"); }}>Create Instagram canvas</button>
+                        </div>
+                      )}
+                    </div>
+                    <button className="linkish" onClick={() => setShowAdjust((v) => !v)}>Adjust results</button>
+                    <button className="linkish" onClick={() => { setResults(null); setShowAdjust(false); setView("keepers"); }}>New cull</button>
+                  </div>
+                </div>
+                {busy && <p className="app-busy">{busy}</p>}
+                {error && <p className="app-error">{error}</p>}
+
+                {showAdjust && (
+                  <div className="adjust-panel">
+                    <div className="preset-grid sm">
+                      {PRESET_META.map((p) => (
+                        <button key={p.value} className={`preset${settings.preset === p.value ? " on" : ""}`} onClick={() => set("preset", p.value)}>
+                          <span className="preset-icon">{p.icon}</span><span className="preset-label">{p.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <label className="control"><span>Keepers: <b>{settings.top_n}</b></span>
+                      <input type="range" min={1} max={300} value={settings.top_n} onChange={(e) => set("top_n", +e.target.value)} /></label>
+                    <label className="control"><span>Sharpness strictness: <b>{settings.blur}</b></span>
+                      <input type="range" min={0} max={100} value={settings.blur} onChange={(e) => set("blur", +e.target.value)} /></label>
+                    <label className="control"><span>Duplicate sensitivity: <b>{settings.dupes}</b></span>
+                      <input type="range" min={0} max={10} value={settings.dupes} onChange={(e) => set("dupes", +e.target.value)} /></label>
+                    <p className="adjust-note">Changes re-rank instantly — no re-upload.</p>
+                  </div>
+                )}
+
+                {/* View switcher — clearer than stacked headings. */}
+                <div className="views">
+                  <button className={view === "keepers" ? "on" : ""} onClick={() => setView("keepers")}>Keepers <b>{results.keepers.length}</b></button>
+                  <button className={view === "review" ? "on" : ""} onClick={() => setView("review")}>Review <b>{results.rejected.length}</b></button>
+                  <button className={view === "dupes" ? "on" : ""} onClick={() => setView("dupes")}>Bursts <b>{bursts.length}</b></button>
+                  <button className={view === "all" ? "on" : ""} onClick={() => setView("all")}>All <b>{results.total}</b></button>
+                </div>
+                <p className="view-hint">
+                  {view === "keepers" && "ClutchCull's selections — tap any frame to include or exclude it."}
+                  {view === "review" && "Lower-ranked frames. Nothing is deleted — tap any to rescue it into your keepers."}
+                  {view === "dupes" && "Similar frames shot in a burst. Tap a different frame to swap which one you keep."}
+                  {view === "all" && "Every photo from the shoot."}
+                </p>
+
+                {/* --- photos, immediately --- */}
+                {view === "keepers" && (
+                  <div className="keeper-grid">
+                    {results.keepers.map((k, i) => (
+                      <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
+                        {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} /> : <div className="keeper-ph" />}
+                        <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
+                        {k.soft && <span className="soft-flag" title="Subject looks soft — double-check before keeping">⚠ Soft</span>}
+                        <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {view === "review" && (
+                  results.rejected.length ? (
+                    <div className="keeper-grid">{results.rejected.map((name) => (
+                      <button className={`keeper removed${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => toggleSel(name)}>
+                        {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                        <span className="tick">{selected.has(name) ? "✓" : ""}</span>
+                        <div className="keeper-meta"><span className="badge">{selected.has(name) ? "Rescued" : "Lower-ranked"}</span></div>
+                      </button>))}
+                    </div>
+                  ) : <p className="empty-view">Nothing was filtered out of this shoot.</p>
+                )}
+
+                {view === "dupes" && (
+                  bursts.length ? (
+                    <div className="burst-list">
+                      {bursts.map((k) => {
+                        const group = [k.filename, ...k.duplicates!.map((d) => d.filename)];
+                        return (
+                          <div className="burst" key={k.filename}>
+                            <div className="burst-head">
+                              <b>Burst of {group.length} photos</b>
+                              <span>ClutchCull selected {group.find((n) => selected.has(n)) === k.filename ? "this frame" : "a different frame"}</span>
+                            </div>
+                            <div className="dupe-group">{group.map((name) => (
+                              <button className={`dupe-frame${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => chooseFrame(group, name)}>
+                                {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                                {selected.has(name) && <span className="dupe-badge">✓ Keeping</span>}
+                              </button>))}
+                            </div>
+                          </div>);
+                      })}
+                    </div>
+                  ) : <p className="empty-view">No burst sequences found in this shoot.</p>
+                )}
+
+                {view === "all" && (
+                  <div className="keeper-grid">{allNames.map((name) => {
+                    const k = results.keepers.find((x) => x.filename === name);
+                    return (
+                      <button className={`keeper${selected.has(name) ? " sel" : ""}${k ? "" : " removed"}`} key={name} onClick={() => toggleSel(name)}>
+                        {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                        <span className="tick">{selected.has(name) ? "✓" : ""}</span>
+                        <div className="keeper-meta"><span className="badge">{k ? `${BADGE_ICON[k.badge] || "✅"} ${k.badge}` : "Lower-ranked"}</span>{k && <span className="score">{Math.round(k.score)}</span>}</div>
+                      </button>);
+                  })}
                   </div>
                 )}
 
@@ -368,18 +522,6 @@ export default function AppPage() {
                     <a className="btn btn-primary" href={report} download="clutchcull_report.jpg" onClick={logExport}>⬇ Download this card</a>
                   </div>
                 )}
-
-                <h2 className="results-h2">Your keepers <span className="muted-note">— tap to include / exclude</span></h2>
-                <div className="keeper-grid">
-                  {results.keepers.map((k, i) => (
-                    <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
-                      {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} /> : <div className="keeper-ph" />}
-                      <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
-                      {k.soft && <span className="soft-flag" title="Subject looks soft — double-check before keeping">⚠ Soft</span>}
-                      <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
-                    </button>
-                  ))}
-                </div>
 
                 <details className="rank-table">
                   <summary>📊 See the scores behind these picks</summary>
@@ -392,67 +534,106 @@ export default function AppPage() {
                   </table></div>
                 </details>
 
-                {results.keepers.some((k) => k.duplicates && k.duplicates.length) && (
-                  <>
-                    <h2 className="results-h2" style={{ marginTop: 40 }}>👯 Compare similar shots <span className="muted-note">— tap another frame to swap it in</span></h2>
-                    <div className="dupe-groups">
-                      {results.keepers.filter((k) => k.duplicates && k.duplicates.length).map((k) => {
-                        const group = [k.filename, ...k.duplicates!.map((d) => d.filename)];
-                        return (<div className="dupe-group" key={k.filename}>{group.map((name) => (
-                          <button className={`dupe-frame${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => chooseFrame(group, name)}>
-                            {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
-                            {selected.has(name) && <span className="dupe-badge">✓ Keeping</span>}
-                          </button>))}</div>);
-                      })}
+                {/* Newsletter sits AFTER the work, so it never interrupts review. */}
+                {!emailSaved ? (
+                  <div className="email-capture">
+                    <div className="ec-head">
+                      <b>📬 Want new ClutchCull features first?</b>
+                      <span>
+                        Drop your email and I&apos;ll send you new tools as they launch — plus
+                        sports-photography tips from shooting sidelines every week. Built by
+                        a student-athlete photographer, free for photographers.
+                      </span>
                     </div>
-                  </>
-                )}
-
-                {results.rejected.length > 0 && (
-                  <>
-                    <h2 className="results-h2" style={{ marginTop: 40 }}>🩹 Removed shots <span className="muted-note">— nothing is deleted; tap any to rescue</span></h2>
-                    <div className="keeper-grid">{results.rejected.slice(0, 24).map((name) => (
-                      <button className={`keeper removed${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => toggleSel(name)}>
-                        {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
-                        <span className="tick">{selected.has(name) ? "✓" : ""}</span>
-                        <div className="keeper-meta"><span className="badge">{selected.has(name) ? "Rescued" : "Removed"}</span></div>
-                      </button>))}
+                    <div className="email-row">
+                      <input type="email" placeholder="you@example.com" value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveEmail(); }} />
+                      <button className="btn btn-primary" onClick={saveEmail}>Keep me posted</button>
                     </div>
-                  </>
+                    <div className="ec-fine">No spam, no selling your email, unsubscribe any time. Your photos are never uploaded or shared.</div>
+                  </div>
+                ) : (
+                  <div className="email-capture done">
+                    <b>🙌 You&apos;re on the list.</b>
+                    <span> Thanks for supporting a student-built tool — I&apos;ll only email when there&apos;s something genuinely useful.</span>
+                  </div>
                 )}
-
               </section>
             )}
           </>
         ) : (
           <>
-            <h1 className="app-h1">Instagram canvas posts</h1>
-            <p className="app-lead">Drop in your picks and get clean, ready-to-post canvas versions — no culling required.</p>
+            <h1 className="app-h1">Make Instagram canvas posts</h1>
+            <p className="app-lead">Drop in your picks and get clean, ready-to-post versions — no culling required.</p>
 
-            <div className={`dropzone${dragOverC ? " over" : ""}`} onClick={() => canvasInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragOverC(true); }} onDragLeave={() => setDragOverC(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOverC(false); ingest(e.dataTransfer.files, true); }}>
-              <input ref={canvasInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, true)} />
-              <div className="dz-title">Drop photos to make canvas posts</div>
-              <div className="dz-sub">{canvasNames.length ? `${canvasNames.length} photo${canvasNames.length > 1 ? "s" : ""} ready` : "Click or drag photos — or come from Cull to use your keepers"}</div>
-            </div>
+            <section className="step">
+              <div className="step-head"><span className="step-n">1</span><h2>Add your photos</h2></div>
+              {canvasNames.length === 0 ? (
+                <div className={`dropzone big${dragOverC ? " over" : ""}`} onClick={() => canvasInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverC(true); }} onDragLeave={() => setDragOverC(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragOverC(false); ingest(e.dataTransfer.files, true); }}>
+                  <input ref={canvasInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, true)} />
+                  <div className="dz-icon">📱</div>
+                  <div className="dz-title">Drop photos or a folder here</div>
+                  <div className="dz-sub">JPEG, PNG and WebP · Or come from Cull to use your keepers</div>
+                  <span className="btn btn-primary dz-btn">Choose photos</span>
+                </div>
+              ) : (
+                <div className="ready-card">
+                  <div className="ready-main">
+                    <div className="ready-count">{canvasNames.length} photo{canvasNames.length > 1 ? "s" : ""} ready</div>
+                    <div className="ready-meta">{ratio} posts · {padding}px white border</div>
+                  </div>
+                  <div className="ready-actions">
+                    <button className="btn btn-primary lg" disabled={!!busy} onClick={generateCanvases}>
+                      {busy ? "Building…" : `Generate ${canvasNames.length} post${canvasNames.length > 1 ? "s" : ""}`}
+                    </button>
+                    <button className="linkish" onClick={() => canvasInputRef.current?.click()}>Add or replace photos</button>
+                    <input ref={canvasInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, true)} />
+                  </div>
+                </div>
+              )}
+              {error && <p className="app-error">{error}</p>}
+            </section>
 
-            <div className="controls" style={{ gridTemplateColumns: "1fr 1fr auto" }}>
-              <label className="control"><span>Post size</span>
-                <select value={ratio} onChange={(e) => setRatio(e.target.value)}>{Object.keys(CANVAS_RATIOS).map((r) => <option key={r} value={r}>{r} ({CANVAS_RATIOS[r][0]}×{CANVAS_RATIOS[r][1]})</option>)}</select></label>
-              <label className="control"><span>White border: <b>{padding}</b> <em style={{ color: "var(--gold)", fontStyle: "normal" }}>· Gec Shots recommends 20</em></span>
-                <input type="range" min={0} max={100} value={padding} onChange={(e) => setPadding(+e.target.value)} /></label>
-              <div className="control" style={{ justifyContent: "flex-end" }}>
-                <button className="btn btn-primary" disabled={!canvasNames.length || !!busy} onClick={generateCanvases}>Generate {canvasNames.length || ""} posts</button></div>
-            </div>
+            <section className="step">
+              <div className="step-head"><span className="step-n">2</span><h2>Choose your post style</h2></div>
+              <div className="preset-grid">
+                {Object.keys(CANVAS_RATIOS).map((r) => (
+                  <button key={r} className={`preset${ratio === r ? " on" : ""}`} onClick={() => setRatio(r)}>
+                    <span className="preset-label">{r}</span>
+                    <span className="preset-hint">{CANVAS_RATIOS[r][0]}×{CANVAS_RATIOS[r][1]}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="goal">
+                <label htmlFor="pad">How much white border?</label>
+                <div className="goal-row">
+                  <input id="pad" type="number" min={0} max={100} value={padding}
+                    onChange={(e) => setPadding(Math.max(0, Math.min(100, +e.target.value || 0)))} />
+                  <span className="goal-post">px <em className="rec">· Gec Shots recommends 20</em></span>
+                  <input className="goal-range" type="range" min={0} max={100} value={padding} onChange={(e) => setPadding(+e.target.value)} />
+                </div>
+              </div>
+            </section>
 
             {busy && <p className="app-busy" style={{ margin: "10px 0" }}>{busy}</p>}
 
             {canvases.length > 0 && (
-              <>
-                <div className="export-bar"><button className="btn btn-primary" onClick={downloadCanvases}>⬇ Download all {canvases.length} posts (ZIP)</button></div>
+              <section className="results">
+                <div className="res-bar">
+                  <div className="res-sum">
+                    <div className="res-title">{canvases.length} post{canvases.length > 1 ? "s" : ""} ready</div>
+                    <div className="res-sub">{ratio} · {padding}px border</div>
+                  </div>
+                  <div className="res-act">
+                    <button className="btn btn-primary" disabled={!!busy} onClick={downloadCanvases}>Download {canvases.length} post{canvases.length > 1 ? "s" : ""}</button>
+                    <button className="linkish" onClick={() => setMode("cull")}>← Back to cull</button>
+                  </div>
+                </div>
                 <div className="canvas-grid">{canvases.map((c) => (<div className="canvas-item" key={c.name}><img src={c.url} alt={c.name} /></div>))}</div>
-              </>
+              </section>
             )}
           </>
         )}
