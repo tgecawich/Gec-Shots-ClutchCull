@@ -52,6 +52,11 @@ SUBJECT_REJECT = float(os.getenv("CLUTCHCULL_SUBJECT_REJECT", "0.9"))  # reject 
 # and YuNet cost grows fast with resolution (~3x from 800px to 1200px). We
 # detect small, then scale boxes back up; sharpness still uses full metrics res.
 FACE_DETECT_WIDTH = int(os.getenv("CLUTCHCULL_FACE_WIDTH", "800"))
+# Face width (as a fraction of frame width) that counts as a fully clear
+# subject. 0.22 demanded an extreme close-up, so real sports faces (3-8% of
+# frame) scored ~0.2 and were always beaten by person size — making face
+# detection effectively invisible in the ranking.
+FACE_FULL_W = float(os.getenv("CLUTCHCULL_FACE_FULL_W", "0.12"))
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 CANVAS_MAX_LONG_EDGE = 2880
 
@@ -308,6 +313,14 @@ def _region_sharpness(gray, x0, y0, x1, y1, tiles=4):
     return float(np.percentile(vals, 75))
 
 
+def _face_presence(faces, img_w) -> float:
+    """How prominent and confident the clearest face is (0-1)."""
+    if not faces or not img_w:
+        return 0.0
+    x, y, fw, fh, conf = max(faces, key=lambda f: f[2] * f[3])
+    return min(1.0, fw / (FACE_FULL_W * img_w)) * conf
+
+
 def _pick_subject(persons, faces, img_w, img_h):
     """Choose the subject box: prefer a detected PERSON (works with helmets and
     backs turned), then a face, then fall back to a center crop."""
@@ -324,13 +337,19 @@ def _pick_subject(persons, faces, img_w, img_h):
         pad_x, pad_y = bw * 0.05, bh * 0.05
         subj = (x - pad_x, y - pad_y, x + bw + pad_x, y + bh + pad_y)
         # Confidence that there's a clear subject: bigger + surer = better.
-        presence = min(1.0, (bw * bh) / (0.16 * img_w * img_h)) * conf
+        # A visible face is the strongest "clear subject" signal there is, so it
+        # still counts even when a person box was what located the subject —
+        # previously face detection was discarded entirely whenever a person was
+        # found, which made the 'faces' factor useless on portrait-style shots.
+        presence = max(
+            min(1.0, (bw * bh) / (0.16 * img_w * img_h)) * conf,
+            _face_presence(faces, img_w),
+        )
         return subj, presence, "person"
     if faces:
         x, y, fw, fh, conf = max(faces, key=lambda f: score_box(*f))
         subj = (x - fw * 0.6, y - fh * 0.5, x + fw * 1.6, y + fh + fh * 1.4)
-        presence = min(1.0, (fw / (0.22 * img_w)) if img_w else 0.0) * conf
-        return subj, presence, "face"
+        return subj, _face_presence(faces, img_w), "face"
     mw, mh = img_w * 0.225, img_h * 0.225
     return (mw, mh, img_w - mw, img_h - mh), 0.0, "center"
 

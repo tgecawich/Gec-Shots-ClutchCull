@@ -17,9 +17,10 @@ const PRESET_META: { value: string; label: string; icon: string; hint: string }[
   { value: "Events", label: "Event", icon: "🎉", hint: "Mixed crowd and candids" },
   { value: "Balanced", label: "Balanced", icon: "⚖️", hint: "Good all-round default" },
 ];
-// Measured on the live Starter instance: roughly 0.5–0.85s per photo end to end.
-const SEC_PER_PHOTO_LO = 0.5;
-const SEC_PER_PHOTO_HI = 0.85;
+// Measured on the live Starter instance, then trimmed to match real-world
+// timings reported on 500-photo shoots (the first estimate ran ~1 min high).
+const SEC_PER_PHOTO_LO = 0.36;
+const SEC_PER_PHOTO_HI = 0.7;
 const BADGE_ICON: Record<string, string> = {
   "Sharp subject": "⚡", "Clear subject": "🎯", "Rich detail": "🔍",
   "Clean contrast": "🌗", "Well-exposed": "☀️", "Strong pick": "✅",
