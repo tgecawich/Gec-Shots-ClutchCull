@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resizeImage, mapLimit } from "@/lib/resize";
 import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type CullSettings, type Metric } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
@@ -90,6 +90,31 @@ export default function AppPage() {
   const allNames = Object.keys(filesMap);
   const set = (k: keyof CullSettings, v: string | number) => setSettings((s) => ({ ...s, [k]: v }));
 
+  // Only the photos actually on screen right now.
+  const visibleNames = useMemo(() => {
+    if (!results) return [] as string[];
+    if (view === "keepers") return results.keepers.slice(0, limit).map((k) => k.filename);
+    if (view === "review") return results.rejected.slice(0, limit);
+    if (view === "dupes") return results.keepers.filter((k) => k.duplicates?.length)
+      .flatMap((k) => [k.filename, ...(k.duplicates || []).map((d) => d.filename)]);
+    return Object.keys(filesMap).slice(0, limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results, view, limit, fileKey]);
+
+  // Create thumbnail URLs lazily, in small batches, for visible photos only.
+  // Guarded: security extensions can override URL.createObjectURL and throw when
+  // it's called rapidly (they treat it as "browser locker" behaviour). A blocked
+  // thumbnail must degrade to a placeholder, never take down the whole app.
+  useEffect(() => {
+    const missing = visibleNames.filter((n) => !thumbs[n] && filesMap[n]);
+    if (!missing.length) return;
+    const add: Record<string, string> = {};
+    for (const n of missing.slice(0, 40)) {
+      try { add[n] = URL.createObjectURL(filesMap[n]); } catch { /* blocked — placeholder */ }
+    }
+    if (Object.keys(add).length) setThumbs((prev) => ({ ...prev, ...add }));
+  }, [visibleNames, filesMap, thumbs]);
+
   const ingest = useCallback((list: FileList | null, alsoSelect: boolean) => {
     if (!list) return;
     // Explain unusable files instead of silently ignoring them. Sports shooters
@@ -116,7 +141,9 @@ export default function AppPage() {
     warmApi(); // photos added — make sure the API is awake before they cull
     if (!alsoSelect) { metricsRef.current = null; setCanRerank(false); } // new photos → cached metrics stale
     setFilesMap((prev) => { const m = { ...prev }; arr.forEach((f) => (m[f.name] = f)); return m; });
-    setThumbs((prev) => { const t = { ...prev }; arr.forEach((f) => (t[f.name] ||= URL.createObjectURL(f))); return t; });
+    // Thumbnails are created lazily for on-screen photos only (see effect below).
+    // Creating one per file here meant 500 synchronous URL.createObjectURL calls,
+    // which some security extensions flag as "browser locker" behaviour and throw on.
     if (alsoSelect) setSelected((prev) => { const s = new Set(prev); arr.forEach((f) => s.add(f.name)); return s; });
     else setResults(null);
   }, []);
@@ -244,7 +271,7 @@ export default function AppPage() {
         filtered, elapsedSeconds: elapsed,
         keeperFiles: results.keepers.slice(0, 3).map((k) => filesMap[k.filename]).filter(Boolean),
       });
-      setReport(URL.createObjectURL(blob));
+      try { setReport(URL.createObjectURL(blob)); } catch { setError("Couldn't build the report card — a browser extension may be blocking it."); }
     } catch {}
     setBusy("");
   }
@@ -498,7 +525,7 @@ export default function AppPage() {
                 {view === "dupes" && (
                   bursts.length ? (
                     <div className="burst-list">
-                      {bursts.map((k) => {
+                      {bursts.slice(0, limit).map((k) => {
                         const group = [k.filename, ...k.duplicates!.map((d) => d.filename)];
                         return (
                           <div className="burst" key={k.filename}>
