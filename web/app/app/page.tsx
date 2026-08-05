@@ -31,6 +31,8 @@ const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-c
 // Hand-building one padded canvas post takes ~60s (measured by Gec Shots),
 // same basis as the ~15s/photo used for culling.
 const CANVAS_SECONDS_EACH = 60;
+// Photos rendered per view before "Show more".
+const PAGE = 120;
 
 export default function AppPage() {
   const [filesMap, setFilesMap] = useState<Record<string, File>>({});
@@ -61,6 +63,9 @@ export default function AppPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
+  // Render in pages: 500 full-res originals mounted at once exhausts the
+  // renderer even with lazy decoding.
+  const [limit, setLimit] = useState(PAGE);
   const inputRef = useRef<HTMLInputElement>(null);
   const canvasInputRef = useRef<HTMLInputElement>(null);
   // Cached per-image metrics + the file set they belong to, so slider changes
@@ -442,10 +447,10 @@ export default function AppPage() {
 
                 {/* View switcher — clearer than stacked headings. */}
                 <div className="views">
-                  <button className={view === "keepers" ? "on" : ""} onClick={() => setView("keepers")}>Keepers <b>{results.keepers.length}</b></button>
-                  <button className={view === "review" ? "on" : ""} onClick={() => setView("review")}>Review <b>{results.rejected.length}</b></button>
-                  <button className={view === "dupes" ? "on" : ""} onClick={() => setView("dupes")}>Bursts <b>{bursts.length}</b></button>
-                  <button className={view === "all" ? "on" : ""} onClick={() => setView("all")}>All <b>{results.total}</b></button>
+                  <button className={view === "keepers" ? "on" : ""} onClick={() => { setView("keepers"); setLimit(PAGE); }}>Keepers <b>{results.keepers.length}</b></button>
+                  <button className={view === "review" ? "on" : ""} onClick={() => { setView("review"); setLimit(PAGE); }}>Review <b>{results.rejected.length}</b></button>
+                  <button className={view === "dupes" ? "on" : ""} onClick={() => { setView("dupes"); setLimit(PAGE); }}>Bursts <b>{bursts.length}</b></button>
+                  <button className={view === "all" ? "on" : ""} onClick={() => { setView("all"); setLimit(PAGE); }}>All <b>{results.total}</b></button>
                 </div>
                 <p className="view-hint">
                   {view === "keepers" && "ClutchCull's selections — tap any frame to include or exclude it."}
@@ -457,9 +462,9 @@ export default function AppPage() {
                 {/* --- photos, immediately --- */}
                 {view === "keepers" && (
                   <div className="keeper-grid">
-                    {results.keepers.map((k, i) => (
+                    {results.keepers.slice(0, limit).map((k, i) => (
                       <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
-                        {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} /> : <div className="keeper-ph" />}
+                        {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
                         <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
                         {k.soft && <span className="soft-flag" title="Subject looks soft — double-check before keeping">⚠ Soft</span>}
                         <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
@@ -467,17 +472,27 @@ export default function AppPage() {
                     ))}
                   </div>
                 )}
+                {view === "keepers" && results.keepers.length > limit && (
+                  <button className="show-more" onClick={() => setLimit((n) => n + PAGE)}>
+                    Show more ({results.keepers.length - limit} remaining)
+                  </button>
+                )}
 
                 {view === "review" && (
                   results.rejected.length ? (
-                    <div className="keeper-grid">{results.rejected.map((name) => (
+                    <div className="keeper-grid">{results.rejected.slice(0, limit).map((name) => (
                       <button className={`keeper removed${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => toggleSel(name)}>
-                        {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                        {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
                         <span className="tick">{selected.has(name) ? "✓" : ""}</span>
                         <div className="keeper-meta"><span className="badge">{selected.has(name) ? "Rescued" : "Lower-ranked"}</span></div>
                       </button>))}
                     </div>
                   ) : <p className="empty-view">Nothing was filtered out of this shoot.</p>
+                )}
+                {view === "review" && results.rejected.length > limit && (
+                  <button className="show-more" onClick={() => setLimit((n) => n + PAGE)}>
+                    Show more ({results.rejected.length - limit} remaining)
+                  </button>
                 )}
 
                 {view === "dupes" && (
@@ -493,7 +508,7 @@ export default function AppPage() {
                             </div>
                             <div className="dupe-group">{group.map((name) => (
                               <button className={`dupe-frame${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => chooseFrame(group, name)}>
-                                {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                                {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
                                 {selected.has(name) && <span className="dupe-badge">✓ Keeping</span>}
                               </button>))}
                             </div>
@@ -504,16 +519,21 @@ export default function AppPage() {
                 )}
 
                 {view === "all" && (
-                  <div className="keeper-grid">{allNames.map((name) => {
+                  <div className="keeper-grid">{allNames.slice(0, limit).map((name) => {
                     const k = results.keepers.find((x) => x.filename === name);
                     return (
                       <button className={`keeper${selected.has(name) ? " sel" : ""}${k ? "" : " removed"}`} key={name} onClick={() => toggleSel(name)}>
-                        {thumbs[name] ? <img src={thumbs[name]} alt={name} /> : <div className="keeper-ph" />}
+                        {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
                         <span className="tick">{selected.has(name) ? "✓" : ""}</span>
                         <div className="keeper-meta"><span className="badge">{k ? `${BADGE_ICON[k.badge] || "✅"} ${k.badge}` : "Lower-ranked"}</span>{k && <span className="score">{Math.round(k.score)}</span>}</div>
                       </button>);
                   })}
                   </div>
+                )}
+                {view === "all" && allNames.length > limit && (
+                  <button className="show-more" onClick={() => setLimit((n) => n + PAGE)}>
+                    Show more ({allNames.length - limit} remaining)
+                  </button>
                 )}
 
                 {report && (
@@ -632,7 +652,7 @@ export default function AppPage() {
                     <button className="linkish" onClick={() => setMode("cull")}>← Back to cull</button>
                   </div>
                 </div>
-                <div className="canvas-grid">{canvases.map((c) => (<div className="canvas-item" key={c.name}><img src={c.url} alt={c.name} /></div>))}</div>
+                <div className="canvas-grid">{canvases.map((c) => (<div className="canvas-item" key={c.name}><img src={c.url} alt={c.name} loading="lazy" decoding="async" /></div>))}</div>
               </section>
             )}
           </>

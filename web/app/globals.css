@@ -332,3 +332,12 @@ button.keeper { text-align: left; padding: 0; cursor: pointer; font-family: inhe
   .ready-actions { align-items: stretch; }
   .res-bar { position: static; }
 }
+
+.show-more { display: block; margin: 22px auto 0; padding: 12px 26px; border-radius: 14px; cursor: pointer;
+  font-family: inherit; font-weight: 700; font-size: 0.95rem; color: var(--text);
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
+.show-more:hover { background: rgba(255,255,255,0.12); }
+
+/* Skip layout/paint for offscreen photo cards — with hundreds of full-res
+   originals this is the difference between smooth scrolling and an OOM crash. */
+.keeper, .dupe-frame, .canvas-item { content-visibility: auto; contain-intrinsic-size: 300px 380px; }
