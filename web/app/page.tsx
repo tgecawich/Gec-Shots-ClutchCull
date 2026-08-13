@@ -184,17 +184,18 @@ export default async function Home() {
             <span className="pulse" />
             {impact
               ? `${Math.round(impact.photos).toLocaleString()} PHOTOS CULLED BY ${impact.people.toLocaleString()} PHOTOGRAPHERS`
-              : "BUILT BY A STUDENT-ATHLETE FOR SPORTS PHOTOGRAPHERS"}
+              : "BUILT BY A PHOTOGRAPHER, FOR PHOTOGRAPHERS"}
           </div>
           <h1 className="hero-title">
-            Find your best shots in <span className="grad-text">minutes,</span> not hours.
+            Shoot the moment. Skip the <span className="grad-text">culling.</span>
           </h1>
           <p className="hero-sub">
-            Drop a full game shoot in. ClutchCull&apos;s AI locks onto the athlete, cuts blurry
-            frames and duplicates, and ranks your sharpest keepers — automatically.
+            Drop a full shoot in — a game, a session, an event. ClutchCull&apos;s AI locks onto
+            your subject, cuts blurry frames and duplicates, and ranks your sharpest keepers —
+            automatically.
           </p>
           <p className="hero-promise">
-            Saving you hours — so you can spend more time out taking photos and editing.
+            Minutes instead of hours, every single shoot — more time out taking photos and editing.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href={APP_URL}>Cull my shoot free →</a>
