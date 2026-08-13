@@ -389,16 +389,28 @@ export default function AppPage() {
                     ))}
                   </div>
 
-                  <div className="goal">
+                  {/* The single most important decision on this screen, so it gets
+                      its own raised panel and a large readout instead of sitting
+                      under the presets like a footnote. */}
+                  <div className="goal goal-hero">
                     <label htmlFor="keepers">How many keepers do you want?</label>
-                    <div className="goal-row">
-                      <span className="goal-pre">Approximately</span>
-                      <input id="keepers" type="number" min={1} max={300} value={settings.top_n}
-                        onChange={(e) => set("top_n", Math.max(1, Math.min(300, +e.target.value || 1)))} />
-                      <span className="goal-post">photos</span>
-                      <input className="goal-range" type="range" min={1} max={300} value={settings.top_n}
-                        onChange={(e) => set("top_n", +e.target.value)} />
+                    <div className="goal-main">
+                      <div className="goal-value">
+                        <input id="keepers" type="number" min={1} max={300} value={settings.top_n}
+                          onChange={(e) => set("top_n", Math.max(1, Math.min(300, +e.target.value || 1)))} />
+                        <span className="goal-unit">photos</span>
+                      </div>
+                      <div className="goal-slider">
+                        <input className="goal-range" type="range" min={1} max={300} value={settings.top_n}
+                          onChange={(e) => set("top_n", +e.target.value)} aria-label="Number of keepers" />
+                        <div className="goal-scale"><span>1</span><span>300</span></div>
+                      </div>
                     </div>
+                    <p className="goal-hint">
+                      {fileCount
+                        ? `ClutchCull will rank all ${fileCount.toLocaleString()} photos and surface your best ${settings.top_n}.`
+                        : "You can change this at any time, and results re-rank instantly."}
+                    </p>
                   </div>
 
                   <button className="adv-toggle" onClick={() => setAdvOpen((v) => !v)} aria-expanded={advOpen}>

@@ -356,3 +356,35 @@ button.keeper { text-align: left; padding: 0; cursor: pointer; font-family: inhe
 /* Skip layout/paint for offscreen photo cards — with hundreds of full-res
    originals this is the difference between smooth scrolling and an OOM crash. */
 .keeper, .dupe-frame, .canvas-item { content-visibility: auto; contain-intrinsic-size: 300px 380px; }
+
+/* ── Keeper goal: the primary decision on the setup screen ──────────────── */
+.goal-hero { margin: 4px 0 20px; padding: 20px 22px; border-radius: 12px;
+  border: 1px solid var(--border-strong); background: var(--panel-2); }
+.goal-hero > label { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
+.goal-main { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; }
+.goal-value { display: flex; align-items: baseline; gap: 9px; flex: none; }
+.goal-value input[type="number"] { width: 132px; padding: 6px 10px; border-radius: 10px;
+  font-family: var(--font-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums;
+  font-size: 2.6rem; font-weight: 700; line-height: 1.1; text-align: center; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); }
+.goal-value input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.goal-unit { color: var(--muted); font-size: 1rem; font-weight: 600; }
+.goal-slider { flex: 1; min-width: 220px; }
+.goal-scale { display: flex; justify-content: space-between; margin-top: 6px;
+  color: var(--muted); font-size: 0.75rem; font-family: var(--font-mono), monospace; }
+.goal-hint { margin-top: 14px; color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
+
+/* Range inputs were rendering in default browser blue, which clashed with the
+   whole palette and made the control look unfinished. Brand them everywhere. */
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+  border-radius: 999px; background: rgba(255, 255, 255, 0.14); cursor: pointer; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+  border: 3px solid var(--bg); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); cursor: grab; }
+input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.08); }
+input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--bg); cursor: grab; }
+input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); }
+input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.goal-hero input[type="range"] { height: 8px; }
+.goal-hero input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
