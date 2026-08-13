@@ -388,3 +388,8 @@ input[type="range"]::-moz-range-track { height: 6px; border-radius: 999px; backg
 input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .goal-hero input[type="range"] { height: 8px; }
 .goal-hero input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
+
+/* Primary download + the plain-English promise of what it produces. */
+.dl-primary { display: flex; flex-direction: column; gap: 5px; }
+.dl-note { color: var(--muted); font-size: 0.78rem; line-height: 1.35; max-width: 34ch; }
+@media (max-width: 720px) { .dl-note { max-width: none; } }

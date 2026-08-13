@@ -444,9 +444,16 @@ export default function AppPage() {
                     </div>
                   </div>
                   <div className="res-act">
-                    <button className="btn btn-primary" disabled={!selected.size || !!busy} onClick={exportKeepers}>
-                      Download {selected.size} keeper{selected.size === 1 ? "" : "s"}
-                    </button>
+                    {/* Say plainly what lands in the downloads folder. We tell users
+                        "originals never leave your device", which made people assume
+                        the export must be shrunken copies. It isn't: filesMap holds
+                        the untouched originals. */}
+                    <div className="dl-primary">
+                      <button className="btn btn-primary" disabled={!selected.size || !!busy} onClick={exportKeepers}>
+                        Download {selected.size} keeper{selected.size === 1 ? "" : "s"}
+                      </button>
+                      <span className="dl-note">Your original full-quality photos, keepers only, untouched.</span>
+                    </div>
                     <div className="more-wrap">
                       <button className="btn btn-ghost" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>More export options ▾</button>
                       {moreOpen && (
