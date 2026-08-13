@@ -9,19 +9,19 @@
    logo mark, primary action, one hero word, hairline rules. Everything else
    uses solid brand colour or plain grey, so photos stay the loudest thing. */
 :root {
-  --bg: #16161a; --panel: #1f1f25; --panel-2: #272730; --text: #f4f3f6; --muted: #a4a2ad;
-  --orange: #ff8a2a; --gold: #ffc15a; --purple: #7b3cff; --pink: #ff4ecd;
-  --accent: #ff8a2a;            /* selection + interactive state */
+  --bg: #141419; --panel: #212129; --panel-2: #2b2b35; --text: #f7f6f9; --muted: #adaab8;
+  --orange: #ff9231; --gold: #ffc861; --purple: #8a4dff; --pink: #ff5ad6;
+  --accent: #ff9231;            /* selection + interactive state */
   --accent-ink: #1a1205;
   --danger: #e5645d;
-  --border: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.20);
   --radius: 8px;                /* instrument-like, not pill-shaped */
-  --grad: linear-gradient(135deg, #7b3cff 0%, #ff4ecd 50%, #ff8a2a 100%);
+  --grad: linear-gradient(135deg, #8a4dff 0%, #ff5ad6 50%, #ff9231 100%);
   /* On small surfaces a 3-stop 135deg ramp never travels far enough to reach
      orange, so buttons and the logo read purple/pink and lose half the brand.
      Two stops at a shallower angle guarantees both brand colours show. */
-  --grad-compact: linear-gradient(105deg, #7b3cff 0%, #ff8a2a 100%);
+  --grad-compact: linear-gradient(105deg, #8a4dff 0%, #ff9231 100%);
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }

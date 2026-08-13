@@ -132,8 +132,8 @@ export default function AppPage() {
         arr.length
           ? `Added ${arr.length} photo${arr.length > 1 ? "s" : ""}. Skipped ${bad.length} file${bad.length > 1 ? "s" : ""} ClutchCull can't read (${exts.join(", ")}).`
           : isRaw
-            ? `Those are RAW files (${exts.join(", ")}) — ClutchCull reads JPEG, PNG and WebP. Shoot RAW+JPEG on your camera, or export JPEGs from Lightroom and cull those, then apply your picks back to the RAWs.`
-            : `ClutchCull reads JPEG, PNG and WebP — those are ${exts.join(", ")}. On iPhone you can set Camera → Formats → Most Compatible to shoot JPEG.`
+            ? `Those are RAW files (${exts.join(", ")}). ClutchCull reads JPEG, PNG and WebP. Shoot RAW+JPEG on your camera, or export JPEGs from Lightroom and cull those, then apply your picks back to the RAWs.`
+            : `ClutchCull reads JPEG, PNG and WebP. Those are ${exts.join(", ")}. On iPhone you can set Camera → Formats → Most Compatible to shoot JPEG.`
       );
     } else {
       setError("");
@@ -200,7 +200,7 @@ export default function AppPage() {
       const msg = e?.message || "Something went wrong";
       setError(
         fileCount > 150
-          ? `${msg}. Big shoots can strain the free server — try culling in two smaller batches, or upgrade the API for full-size shoots in one go.`
+          ? `${msg}. Big shoots can strain the free server. Try culling in two smaller batches, or upgrade the API for full-size shoots in one go.`
           : msg
       );
     } finally {
@@ -243,7 +243,7 @@ export default function AppPage() {
       // Split big keeper sets into multiple ZIPs so a huge single blob can't
       // crash the tab. Each part downloads on its own.
       await downloadZipBatched(entries, "clutchcull_keepers", 1_200_000_000, 150, (part, total) => {
-        setBusy(total > 1 ? `Zipping keepers — part ${part} of ${total}…` : "Zipping full-resolution keepers…");
+        setBusy(total > 1 ? `Zipping keepers, part ${part} of ${total}…` : "Zipping full-resolution keepers…");
       });
       logExport();
     } catch {
@@ -272,7 +272,7 @@ export default function AppPage() {
         filtered, elapsedSeconds: elapsed,
         keeperFiles: results.keepers.slice(0, 3).map((k) => filesMap[k.filename]).filter(Boolean),
       });
-      try { setReport(URL.createObjectURL(blob)); } catch { setError("Couldn't build the report card — a browser extension may be blocking it."); }
+      try { setReport(URL.createObjectURL(blob)); } catch { setError("Couldn't build the report card. A browser extension may be blocking it."); }
     } catch {}
     setBusy("");
   }
@@ -416,7 +416,7 @@ export default function AppPage() {
                   )}
                 </section>
 
-                <div className="trust-banner">🔒 <b>Your photos are safe.</b> Full-res originals stay on your device — nothing is sold, shared, or used to train anything.</div>
+                <div className="trust-banner">🔒 <b>Your photos are safe.</b> Full-res originals stay on your device. Nothing is sold, shared, or used to train anything.</div>
               </>
             )}
 
@@ -469,7 +469,7 @@ export default function AppPage() {
                       <input type="range" min={0} max={100} value={settings.blur} onChange={(e) => set("blur", +e.target.value)} /></label>
                     <label className="control"><span>Duplicate sensitivity: <b>{settings.dupes}</b></span>
                       <input type="range" min={0} max={10} value={settings.dupes} onChange={(e) => set("dupes", +e.target.value)} /></label>
-                    <p className="adjust-note">Changes re-rank instantly — no re-upload.</p>
+                    <p className="adjust-note">Changes re-rank instantly, no re-upload.</p>
                   </div>
                 )}
 
@@ -481,8 +481,8 @@ export default function AppPage() {
                   <button className={view === "all" ? "on" : ""} onClick={() => { setView("all"); setLimit(PAGE); }}>All <b>{results.total}</b></button>
                 </div>
                 <p className="view-hint">
-                  {view === "keepers" && "ClutchCull's selections — tap any frame to include or exclude it."}
-                  {view === "review" && "Lower-ranked frames. Nothing is deleted — tap any to rescue it into your keepers."}
+                  {view === "keepers" && "ClutchCull's selections. Tap any frame to include or exclude it."}
+                  {view === "review" && "Lower-ranked frames. Nothing is deleted, so tap any to rescue it into your keepers."}
                   {view === "dupes" && "Similar frames shot in a burst. Tap a different frame to swap which one you keep."}
                   {view === "all" && "Every photo from the shoot."}
                 </p>
@@ -494,7 +494,7 @@ export default function AppPage() {
                       <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
                         {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
                         <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
-                        {k.soft && <span className="soft-flag" title="Subject looks soft — double-check before keeping">⚠ Soft</span>}
+                        {k.soft && <span className="soft-flag" title="Subject looks soft. Double-check before keeping.">⚠ Soft</span>}
                         <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
                       </button>
                     ))}
@@ -588,8 +588,8 @@ export default function AppPage() {
                     <div className="ec-head">
                       <b>📬 Want new ClutchCull features first?</b>
                       <span>
-                        Drop your email and I&apos;ll send you new tools as they launch — plus
-                        sports-photography tips from shooting sidelines every week. Built by
+                        Drop your email and I&apos;ll send you new tools as they launch, plus
+                        sports photography tips from shooting sidelines every week. Built by
                         a student-athlete photographer, free for photographers.
                       </span>
                     </div>
@@ -604,7 +604,7 @@ export default function AppPage() {
                 ) : (
                   <div className="email-capture done">
                     <b>🙌 You&apos;re on the list.</b>
-                    <span> Thanks for supporting a student-built tool — I&apos;ll only email when there&apos;s something genuinely useful.</span>
+                    <span> Thanks for supporting a student-built tool. I&apos;ll only email when there&apos;s something genuinely useful.</span>
                   </div>
                 )}
               </section>
@@ -613,7 +613,7 @@ export default function AppPage() {
         ) : (
           <>
             <h1 className="app-h1">Make Instagram canvas posts</h1>
-            <p className="app-lead">Drop in your picks and get clean, ready-to-post versions — no culling required.</p>
+            <p className="app-lead">Drop in your picks and get clean, ready-to-post versions, no culling required.</p>
 
             <section className="step">
               <div className="step-head"><span className="step-n">1</span><h2>Add your photos</h2></div>

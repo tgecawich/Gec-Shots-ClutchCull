@@ -123,12 +123,12 @@ const features = [
   },
   {
     title: "Blazing fast uploads",
-    body: "Photos optimize in your browser and upload in parallel — up to 50× faster on big batches.",
+    body: "Photos optimize in your browser and upload in parallel, up to 50× faster on big batches.",
     icon: <path d="M13 2 3 14h7l-1 8 10-12h-7z" />,
   },
   {
     title: "Transparent ranking",
-    body: "Every keeper shows why it was picked — sharpness, subject, exposure — no black box.",
+    body: "Every keeper shows why it was picked: sharpness, subject, exposure. No black box.",
     icon: (
       <>
         <path d="M3 3v18h18" />
@@ -139,8 +139,8 @@ const features = [
 ];
 
 const steps = [
-  { n: "01", title: "Drop your shoot", body: "Upload a whole game — hundreds of frames, straight from your browser." },
-  { n: "02", title: "AI ranks the keepers", body: "Blurry frames and duplicates out; your sharpest, best-framed shots surfaced and scored." },
+  { n: "01", title: "Drop your shoot", body: "Upload a whole game. Hundreds of frames, straight from your browser." },
+  { n: "02", title: "AI ranks the keepers", body: "Blurry frames and duplicates out. Your sharpest, best-framed shots surfaced and scored." },
   { n: "03", title: "Export & post", body: "Grab full-res keepers or one-tap Instagram canvas posts. You're done." },
 ];
 
@@ -190,12 +190,12 @@ export default async function Home() {
             Shoot the moment. Skip the <span className="grad-text">culling.</span>
           </h1>
           <p className="hero-sub">
-            Drop a full shoot in — a game, a session, an event. ClutchCull&apos;s AI locks onto
-            your subject, cuts blurry frames and duplicates, and ranks your sharpest keepers —
+            Drop a full shoot in: a game, a session, an event. ClutchCull&apos;s AI locks onto
+            your subject, cuts blurry frames and duplicates, then ranks your sharpest keepers
             automatically.
           </p>
           <p className="hero-promise">
-            Minutes instead of hours, every single shoot — more time out taking photos and editing.
+            Minutes instead of hours, every single shoot. More time out taking photos and editing.
           </p>
           <div className="hero-cta">
             <a className="btn btn-primary" href={APP_URL}>Cull my shoot free →</a>
@@ -209,7 +209,7 @@ export default async function Home() {
 
           {/* Live proof, above the fold — visible the moment the page opens. */}
           <div className="hero-impact" id="impact">
-            <div className="sec-tag"><span className="pulse" />Live impact — updating in real time</div>
+            <div className="sec-tag"><span className="pulse" />Live impact, updating in real time</div>
             <div className="stats" style={{ margin: "14px 0 0" }}>
               {dash.map((s) => (
                 <div className="stat" key={s.lbl}>
@@ -247,7 +247,7 @@ export default async function Home() {
         <div className="wrap">
           <div className="sec-head">
             <span className="sec-tag"><span className="pulse" />Why it&apos;s different</span>
-            <h2>It scores the athlete — not just the frame.</h2>
+            <h2>It scores the athlete, not just the frame.</h2>
             <p>Most tools measure whole-frame sharpness. ClutchCull finds your subject and judges the shot the way you would.</p>
           </div>
           <div className="feat-grid">
