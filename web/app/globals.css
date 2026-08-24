@@ -9,7 +9,7 @@
    logo mark, primary action, one hero word, hairline rules. Everything else
    uses solid brand colour or plain grey, so photos stay the loudest thing. */
 :root {
-  --bg: #141419; --panel: #212129; --panel-2: #2b2b35; --text: #f7f6f9; --muted: #adaab8;
+  --bg: #000000; --panel: #131317; --panel-2: #1d1d24; --text: #f7f6f9; --muted: #adaab8;
   --orange: #ff9231; --gold: #ffc861; --purple: #8a4dff; --pink: #ff5ad6;
   --accent: #ff9231;            /* selection + interactive state */
   --accent-ink: #1a1205;
