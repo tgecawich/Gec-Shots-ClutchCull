@@ -65,6 +65,7 @@ export default function AppPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [showAdjust, setShowAdjust] = useState(false);
   const [advOpen, setAdvOpen] = useState(false);
+  const [note, setNote] = useState("");
   // Render in pages: 500 full-res originals mounted at once exhausts the
   // renderer even with lazy decoding.
   const [limit, setLimit] = useState(PAGE);
@@ -164,7 +165,7 @@ export default function AppPage() {
 
   async function runCull() {
     if (!fileCount) return;
-    setLoading(true); setError(""); setCanvases([]); setReport(""); setMinutesLogged(false);
+    setLoading(true); setError(""); setCanvases([]); setReport(""); setMinutesLogged(false); setNote("");
     const t0 = performance.now();
     try {
       // Fast path: we already analyzed this exact set of photos — just re-rank.
@@ -268,6 +269,33 @@ export default function AppPage() {
     triggerDownload(new Blob([rows.join("\n") + "\n"], { type: "text/csv" }), "clutchcull_keepers.csv");
     logExport();
   }
+  // Lightroom hand-off: one tiny .xmp per keeper, named to match the original
+  // file. Drop them beside the photos, hit "Read Metadata from File", and the
+  // picks are already starred. This is the whole point of culling RAW here.
+  async function exportXmp() {
+    if (!results) return;
+    setBusy("Building Lightroom ratings…");
+    try {
+      const { buildSidecars } = await import("@/lib/xmp");
+      const picks = results.keepers.filter((k) => selected.has(k.filename));
+      const files = buildSidecars(picks, { rating: 5, label: "Green" });
+      await downloadZip(
+        files.map((f) => ({ name: f.name, blob: new Blob([f.text], { type: "application/rdf+xml" }) })),
+        "clutchcull_lightroom_ratings.zip"
+      );
+      logExport();
+      setNote(
+        `${files.length} rating file${files.length === 1 ? "" : "s"} downloaded. Unzip them next to your photos, ` +
+        `then in Lightroom select the folder and choose Metadata → Read Metadata from File. Your keepers will be 5 stars. ` +
+        `If you have already edited these photos in Lightroom, back up your existing .xmp files first — these replace them.`
+      );
+    } catch {
+      setError("Couldn't build the Lightroom ratings file.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function buildReport() {
     if (!results) return;
     setBusy("Building your shareable cull report…");
@@ -464,6 +492,7 @@ export default function AppPage() {
                       {moreOpen && (
                         <div className="more-menu" onMouseLeave={() => setMoreOpen(false)}>
                           <button disabled={!selected.size || !!busy} onClick={() => { setMoreOpen(false); exportKeepers(); }}>Download full-resolution ZIP</button>
+                          <button disabled={!selected.size || !!busy} title="Tiny .xmp files that make your keepers 5 stars in Lightroom, Bridge or Capture One" onClick={() => { setMoreOpen(false); exportXmp(); }}>⭐ Lightroom star ratings (.xmp)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportList(); }}>Export filenames (.txt)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportCSV(); }}>Export scores (.csv)</button>
                           <button disabled={!!busy} onClick={() => { setMoreOpen(false); buildReport(); }}>Create cull report</button>
@@ -477,6 +506,7 @@ export default function AppPage() {
                 </div>
                 {busy && <p className="app-busy">{busy}</p>}
                 {error && <p className="app-error">{error}</p>}
+                {note && <p className="app-note">{note} <button className="linkish" onClick={() => setNote("")}>Dismiss</button></p>}
 
                 {showAdjust && (
                   <div className="adjust-panel">

@@ -393,3 +393,8 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .dl-primary { display: flex; flex-direction: column; gap: 5px; }
 .dl-note { color: var(--muted); font-size: 0.78rem; line-height: 1.35; max-width: 34ch; }
 @media (max-width: 720px) { .dl-note { max-width: none; } }
+
+/* Post-export guidance (e.g. the Lightroom hand-off). Informational, not an error. */
+.app-note { margin: 10px 0 0; padding: 14px 16px; border-radius: var(--radius);
+  background: rgba(120, 220, 150, 0.09); border: 1px solid rgba(120, 220, 150, 0.32);
+  color: var(--text); font-size: 0.9rem; line-height: 1.55; max-width: 78ch; }
