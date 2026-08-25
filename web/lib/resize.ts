@@ -57,3 +57,56 @@ export async function resizeImage(
     return file;
   }
 }
+
+// ── RAW handling ──────────────────────────────────────────────────────────
+// RAW files can't be drawn by the browser, so before anything else we pull out
+// the JPEG preview the camera already embedded. Everything downstream (analysis
+// and thumbnails) then behaves exactly as it does for a JPEG shoot.
+
+/** Resize a Blob (not just a File) to maxDim, returning a JPEG blob. */
+async function resizeBlob(blob: Blob, maxDim: number, quality: number): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  return await new Promise<Blob>((res, rej) =>
+    canvas.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/jpeg", quality)
+  );
+}
+
+/**
+ * Prepare any file for analysis. RAW files yield their embedded preview,
+ * resized like any other photo. The RAW itself is never uploaded.
+ * Keeps the ORIGINAL filename so results map back to the user's RAW files.
+ */
+export async function prepareForAnalysis(file: File): Promise<File> {
+  const { isRaw, extractRawPreview } = await import("./raw");
+  if (!isRaw(file)) return resizeImage(file);
+  const preview = await extractRawPreview(file);
+  if (!preview) return file; // no preview found; server will skip it as unreadable
+  const small = await resizeBlob(preview, 1800, 0.72);
+  return new File([small], file.name, { type: "image/jpeg" });
+}
+
+/**
+ * A small displayable thumbnail. For RAW we must extract and downscale, because
+ * an object URL pointing at a .CR2 renders nothing. Kept small on purpose: the
+ * embedded previews are often full-resolution and holding many is expensive.
+ */
+export async function makeThumbUrl(file: File, maxDim = 520): Promise<string | null> {
+  const { isRaw, extractRawPreview } = await import("./raw");
+  if (!isRaw(file)) {
+    try { return URL.createObjectURL(file); } catch { return null; }
+  }
+  try {
+    const preview = await extractRawPreview(file);
+    if (!preview) return null;
+    const thumb = await resizeBlob(preview, maxDim, 0.7);
+    return URL.createObjectURL(thumb);
+  } catch { return null; }
+}

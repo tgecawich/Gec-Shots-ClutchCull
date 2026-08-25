@@ -384,10 +384,21 @@ def _load_metrics_image(path: Path) -> Image.Image | None:
             ow, oh = img.size
             if ow > METRICS_MAX_WIDTH:
                 img.draft("RGB", (METRICS_MAX_WIDTH, max(1, int(oh * METRICS_MAX_WIDTH / ow))))
+            # Apply the camera's rotation BEFORE detection. Vertically shot frames
+            # carry Orientation=6/8 and were previously analysed lying on their
+            # side, which badly hurts face and person detection — both models are
+            # trained on upright images.
+            img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
-            if img.width > METRICS_MAX_WIDTH:
-                scale = METRICS_MAX_WIDTH / img.width
-                img = img.resize((METRICS_MAX_WIDTH, max(1, int(img.height * scale))), RESAMPLING.BILINEAR)
+            # Cap the LONG edge, not the width, so portrait and landscape frames
+            # get the same pixel budget (and the same memory cost) after rotation.
+            long_edge = max(img.width, img.height)
+            if long_edge > METRICS_MAX_WIDTH:
+                scale = METRICS_MAX_WIDTH / long_edge
+                img = img.resize(
+                    (max(1, int(img.width * scale)), max(1, int(img.height * scale))),
+                    RESAMPLING.BILINEAR,
+                )
             else:
                 img = img.copy()
             return img

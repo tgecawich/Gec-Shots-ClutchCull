@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { resizeImage, mapLimit } from "@/lib/resize";
+import { resizeImage, mapLimit, prepareForAnalysis, makeThumbUrl } from "@/lib/resize";
+import { isRaw, RAW_ACCEPT } from "@/lib/raw";
 import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type CullSettings, type Metric } from "@/lib/api";
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, downloadZipBatched, triggerDownload } from "@/lib/zip";
@@ -109,11 +110,18 @@ export default function AppPage() {
   useEffect(() => {
     const missing = visibleNames.filter((n) => !thumbs[n] && filesMap[n]);
     if (!missing.length) return;
-    const add: Record<string, string> = {};
-    for (const n of missing.slice(0, 40)) {
-      try { add[n] = URL.createObjectURL(filesMap[n]); } catch { /* blocked — placeholder */ }
-    }
-    if (Object.keys(add).length) setThumbs((prev) => ({ ...prev, ...add }));
+    let cancelled = false;
+    (async () => {
+      const add: Record<string, string> = {};
+      // RAW files need their embedded preview extracted before they can be
+      // displayed at all, so this is async and runs a few at a time.
+      await mapLimit(missing.slice(0, 24), 3, async (n) => {
+        const url = await makeThumbUrl(filesMap[n]);
+        if (url) add[n] = url;
+      });
+      if (!cancelled && Object.keys(add).length) setThumbs((prev) => ({ ...prev, ...add }));
+    })();
+    return () => { cancelled = true; };
   }, [visibleNames, filesMap, thumbs]);
 
   const ingest = useCallback((list: FileList | null, alsoSelect: boolean) => {
@@ -122,18 +130,15 @@ export default function AppPage() {
     // drop RAW (.CR2/.NEF/.ARW) and iPhone users drop .HEIC — previously nothing
     // happened at all, so the app looked broken and they left.
     const all = Array.from(list);
-    const ok = (f: File) => /\.(jpe?g|png|webp)$/i.test(f.name);
+    const ok = (f: File) => /\.(jpe?g|png|webp)$/i.test(f.name) || isRaw(f);
     const arr = all.filter(ok);
     const bad = all.filter((f) => !ok(f));
     if (bad.length) {
       const exts = [...new Set(bad.map((f) => (f.name.match(/\.([^.]+)$/)?.[1] || "?").toUpperCase()))].slice(0, 4);
-      const isRaw = exts.some((e) => ["CR2", "CR3", "NEF", "ARW", "RAF", "ORF", "RW2", "DNG"].includes(e));
       setError(
         arr.length
           ? `Added ${arr.length} photo${arr.length > 1 ? "s" : ""}. Skipped ${bad.length} file${bad.length > 1 ? "s" : ""} ClutchCull can't read (${exts.join(", ")}).`
-          : isRaw
-            ? `Those are RAW files (${exts.join(", ")}). ClutchCull reads JPEG, PNG and WebP. Shoot RAW+JPEG on your camera, or export JPEGs from Lightroom and cull those, then apply your picks back to the RAWs.`
-            : `ClutchCull reads JPEG, PNG and WebP. Those are ${exts.join(", ")}. On iPhone you can set Camera → Formats → Most Compatible to shoot JPEG.`
+          : `ClutchCull reads JPEG, PNG, WebP and RAW. Those are ${exts.join(", ")}. On iPhone you can set Camera → Formats → Most Compatible to shoot JPEG.`
       );
     } else {
       setError("");
@@ -179,7 +184,7 @@ export default function AppPage() {
         const metrics = await scoreUpload(
           files,
           (d, t) => setProgress((d / t) * 0.92),
-          resizeImage
+          prepareForAnalysis
         );
         metricsRef.current = { key: fileKey, metrics };
         setCanRerank(true);
@@ -190,7 +195,7 @@ export default function AppPage() {
         // in one request would overwhelm the server. Big batches surface the
         // error (the chunk uploader already retried each piece).
         if (files.length <= 40) {
-          const resized = await mapLimit(files, 3, resizeImage);
+          const resized = await mapLimit(files, 3, prepareForAnalysis);
           finishCull(await cullUpload(resized, settings), t0, true);
         } else {
           throw e;
@@ -339,10 +344,10 @@ export default function AppPage() {
                     <div className={`dropzone big${dragOver ? " over" : ""}`} onClick={() => inputRef.current?.click()}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
                       onDrop={(e) => { e.preventDefault(); setDragOver(false); ingest(e.dataTransfer.files, false); }}>
-                      <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, false)} />
+                      <input ref={inputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, false)} />
                       <div className="dz-icon">📷</div>
                       <div className="dz-title">Drop photos or a folder here</div>
-                      <div className="dz-sub">JPEG, PNG and WebP · Originals stay on your device</div>
+                      <div className="dz-sub">JPEG, PNG, WebP and RAW (CR2, CR3, NEF, ARW, DNG…) · Originals stay on your device</div>
                       <span className="btn btn-primary dz-btn">Choose photos</span>
                     </div>
                   ) : (
@@ -360,7 +365,7 @@ export default function AppPage() {
                           {loading ? "Culling…" : `Cull ${fileCount.toLocaleString()} photos`}
                         </button>
                         <button className="linkish" disabled={loading} onClick={() => inputRef.current?.click()}>Add or replace photos</button>
-                        <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, false)} />
+                        <input ref={inputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, false)} />
                       </div>
                     </div>
                   )}
@@ -640,7 +645,7 @@ export default function AppPage() {
                 <div className={`dropzone big${dragOverC ? " over" : ""}`} onClick={() => canvasInputRef.current?.click()}
                   onDragOver={(e) => { e.preventDefault(); setDragOverC(true); }} onDragLeave={() => setDragOverC(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOverC(false); ingest(e.dataTransfer.files, true); }}>
-                  <input ref={canvasInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, true)} />
+                  <input ref={canvasInputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, true)} />
                   <div className="dz-icon">📱</div>
                   <div className="dz-title">Drop photos or a folder here</div>
                   <div className="dz-sub">JPEG, PNG and WebP · Or come from Cull to use your keepers</div>
@@ -657,7 +662,7 @@ export default function AppPage() {
                       {busy ? "Building…" : `Generate ${canvasNames.length} post${canvasNames.length > 1 ? "s" : ""}`}
                     </button>
                     <button className="linkish" onClick={() => canvasInputRef.current?.click()}>Add or replace photos</button>
-                    <input ref={canvasInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" multiple hidden onChange={(e) => ingest(e.target.files, true)} />
+                    <input ref={canvasInputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, true)} />
                   </div>
                 </div>
               )}
