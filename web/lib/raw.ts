@@ -1,6 +1,6 @@
 // RAW support without RAW decoding.
 //
-// Every camera embeds a full JPEG preview inside its RAW file — it's what the
+// Every camera embeds a full JPEG preview inside its RAW file, it's what the
 // camera shows on its own LCD. So we never decode sensor data (which would mean
 // uploading 25-50MB per frame and running libraw on the server). We read the
 // embedded JPEG in the browser, analyse that, and the RAW itself never moves.
@@ -72,7 +72,7 @@ export async function extractRawPreview(file: File): Promise<Blob | null> {
       if (ok) return blob;
       if (w > 0 && candidates.length === 1) return blob; // only option; take it
     } catch {
-      /* not decodable — try the next candidate */
+      /* not decodable, try the next candidate */
     }
   }
   return null;

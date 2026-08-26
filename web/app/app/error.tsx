@@ -14,7 +14,7 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
     <div className="wrap" style={{ padding: "80px 24px", maxWidth: 640 }}>
       <h1 className="app-h1" style={{ fontSize: "1.9rem" }}>Something broke on this screen</h1>
       <p className="app-lead" style={{ marginBottom: 22 }}>
-        Your photos are safe — nothing was uploaded or changed. This is usually a very large
+        Your photos are safe, nothing was uploaded or changed. This is usually a very large
         shoot straining the browser. Try again, and if it keeps happening, cull in two
         smaller batches.
       </p>

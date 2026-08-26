@@ -13,15 +13,15 @@ const ui = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"], var
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-mono" });
 
 // SEO: real title/description/OG so searching "ClutchCull" surfaces the site.
-// Use the real deployed domain — clutchcull.app does not resolve, which broke
+// Use the real deployed domain, clutchcull.app does not resolve, which broke
 // Open Graph link previews when the site was shared on social.
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "ClutchCull — Shoot the Moment. Skip the Culling.",
+  title: "ClutchCull, Shoot the Moment. Skip the Culling.",
   description:
-    "ClutchCull culls a full photo shoot in minutes. AI subject detection cuts blurry frames and duplicates and ranks your sharpest keepers — sports, portraits, or events. Free, no sign-up, by Gec Shots.",
+    "ClutchCull culls a full photo shoot in minutes. AI subject detection cuts blurry frames and duplicates and ranks your sharpest keepers, sports, portraits, or events. Free, no sign-up, by Gec Shots.",
   keywords: [
     "photo culling",
     "sports photography",
@@ -34,9 +34,9 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "Gec Shots" }],
   openGraph: {
-    title: "ClutchCull — Shoot the moment. Skip the culling.",
+    title: "ClutchCull, Shoot the moment. Skip the culling.",
     description:
-      "Free AI photo culling for photographers. Cut blurry frames and duplicates, keep your sharpest shots — in minutes.",
+      "Free AI photo culling for photographers. Cut blurry frames and duplicates, keep your sharpest shots, in minutes.",
     url: SITE_URL,
     siteName: "ClutchCull",
     images: ["/og.png"],
@@ -44,8 +44,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "ClutchCull — Shoot the Moment. Skip the Culling.",
-    description: "Free AI photo culling — cut blurry frames and duplicates, keep your sharpest shots in minutes.",
+    title: "ClutchCull, Shoot the Moment. Skip the Culling.",
+    description: "Free AI photo culling, cut blurry frames and duplicates, keep your sharpest shots in minutes.",
     images: ["/og.png"],
   },
 };
@@ -55,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable}`}>
       <body>
         {children}
-        {/* Cookieless traffic analytics — visitors, referrers, devices.
+        {/* Cookieless traffic analytics, visitors, referrers, devices.
             Covers the landing page too, which previously tracked nothing. */}
         <Analytics />
       </body>

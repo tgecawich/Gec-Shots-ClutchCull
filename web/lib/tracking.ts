@@ -1,4 +1,4 @@
-// Usage tracking — posts to the same Google Form the Streamlit app uses, so
+// Usage tracking, posts to the same Google Form the Streamlit app uses, so
 // the shared Impact Dashboard keeps growing. Fire-and-forget, no-cors.
 const FORM =
   "https://docs.google.com/forms/u/0/d/e/1FAIpQLSdE_xxiIaiHwYX9LQag1kipieTojmqEfqv1fVqwtsCKo45Mlg/formResponse";
@@ -55,7 +55,7 @@ export function trackExport(minutes: number, email = "") {
 }
 
 // Building canvas posts is real work saved too, so it credits `minutes` (once
-// per batch). No `exports` here — downloading the batch logs that separately,
+// per batch). No `exports` here, downloading the batch logs that separately,
 // so one canvas batch can't be counted as two exports.
 export function trackCanvas(n: number, minutes: number, email = "") {
   post({

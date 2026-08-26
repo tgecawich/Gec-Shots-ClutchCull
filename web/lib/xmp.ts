@@ -1,4 +1,4 @@
-// XMP sidecars — how the culling decision reaches Lightroom.
+// XMP sidecars, how the culling decision reaches Lightroom.
 //
 // You can't safely write inside a proprietary RAW, so Adobe's convention is a
 // small companion file with the same basename:
@@ -30,7 +30,7 @@ const esc = (s: string) =>
 /** A minimal, valid XMP packet carrying a star rating and colour label. */
 export function makeXmp(e: XmpEntry): string {
   const desc = e.score != null
-    ? `ClutchCull score ${Math.round(e.score)}${e.reason ? ` — ${e.reason}` : ""}`
+    ? `ClutchCull score ${Math.round(e.score)}${e.reason ? `, ${e.reason}` : ""}`
     : "Selected by ClutchCull";
   return `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="ClutchCull">

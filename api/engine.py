@@ -1,8 +1,8 @@
-"""ClutchCull culling engine — Streamlit-free, stateless, API-ready.
+"""ClutchCull culling engine, Streamlit-free, stateless, API-ready.
 
 Faithful port of the proven logic from the Streamlit app: subject-aware
 sharpness (YuNet face detection), near-duplicate removal (perceptual hash),
-weighted quality scoring, and white-canvas export. No global state — every
+weighted quality scoring, and white-canvas export. No global state, every
 function takes its inputs explicitly so it's safe behind a web API.
 """
 from __future__ import annotations
@@ -35,26 +35,26 @@ RESAMPLING = getattr(Image, "Resampling", Image)
 # via env if you move to a bigger box.
 METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "1800"))
 # Focus-miss guard: if the subject region is much softer than the overall
-# frame, focus probably landed on the background — demote it. Tunable at runtime.
+# frame, focus probably landed on the background, demote it. Tunable at runtime.
 FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
 FOCUS_FLOOR = float(os.getenv("CLUTCHCULL_FOCUS_FLOOR", "0.25"))  # worst-case multiplier for a clear miss
 NOFACE_TRUST = float(os.getenv("CLUTCHCULL_NOFACE_TRUST", "0.85"))  # discount unverified (no-face) subjects
 # Sharpness GATE: for sports, a soft subject is a delete no matter how well
 # exposed/composed. So sharpness multiplies the whole score instead of merely
-# adding to it — a soft shot can't buy its way to the top with light + detail.
+# adding to it: a soft shot can't buy its way to the top with light + detail.
 # Judged in ABSOLUTE terms (subject sharpness vs the blur floor) so a batch of
 # genuinely sharp keepers isn't penalized just for having a "least sharp" one.
 SHARP_GATE_SPAN = float(os.getenv("CLUTCHCULL_SHARP_GATE_SPAN", "6.0"))    # full credit at blur_floor * this
 SHARP_GATE_FLOOR = float(os.getenv("CLUTCHCULL_SHARP_GATE_FLOOR", "0.3"))  # worst-case score multiplier
 SHARP_SOFT_MARK = float(os.getenv("CLUTCHCULL_SOFT_MARK", "1.8"))     # subject sharpness below blur_floor*this -> 'soft'
 SUBJECT_REJECT = float(os.getenv("CLUTCHCULL_SUBJECT_REJECT", "0.9"))  # reject when subject sharpness < blur_floor*this
-# Faces are large features, so detection stays accurate on a downscaled copy —
+# Faces are large features, so detection stays accurate on a downscaled copy,
 # and YuNet cost grows fast with resolution (~3x from 800px to 1200px). We
 # detect small, then scale boxes back up; sharpness still uses full metrics res.
 FACE_DETECT_WIDTH = int(os.getenv("CLUTCHCULL_FACE_WIDTH", "800"))
 # Face width (as a fraction of frame width) that counts as a fully clear
 # subject. 0.22 demanded an extreme close-up, so real sports faces (3-8% of
-# frame) scored ~0.2 and were always beaten by person size — making face
+# frame) scored ~0.2 and were always beaten by person size, making face
 # detection effectively invisible in the ranking.
 FACE_FULL_W = float(os.getenv("CLUTCHCULL_FACE_FULL_W", "0.12"))
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -70,7 +70,7 @@ SCORING_PRESETS = {
 CANVAS_RATIOS = {"3:4": (1080, 1440), "4:5": (1080, 1350), "1:1": (1080, 1080)}
 
 # Person detector (COCO YOLOX-tiny). Sports subjects wear helmets and turn away,
-# so face detection alone can't find them — this locates the ATHLETE'S BODY, which
+# so face detection alone can't find them, this locates the ATHLETE'S BODY, which
 # is what we must measure sharpness on.
 YOLOX_MODEL_PATH = Path(__file__).parent / "models" / "object_detection_yolox_2022nov.onnx"
 YOLOX_MODEL_URL = (
@@ -84,7 +84,7 @@ YOLOX_SIZE = int(os.getenv("CLUTCHCULL_YOLOX_SIZE", "320"))
 PERSON_CONF = float(os.getenv("CLUTCHCULL_PERSON_CONF", "0.35"))
 # ONE shared detector, not thread-local: a per-thread copy would load the whole
 # network per concurrent request and blow a 512MB box instantly. cv2 DNN forward
-# isn't thread-safe, so calls are serialized with _infer_lock — which is fine
+# isn't thread-safe, so calls are serialized with _infer_lock, which is fine
 # because we deliberately process one image at a time on a small instance.
 _person_net = None
 _yolox_lock = threading.Lock()
@@ -110,7 +110,7 @@ class PhotoCandidate:
     brightness_mean: float = 0.0
     exposure_balance: float = 0.0
     subject_sharpness: float = 0.0
-    frame_tiled: float = 0.0   # tiled frame sharpness — for the focus RATIO only
+    frame_tiled: float = 0.0   # tiled frame sharpness, for the focus RATIO only
     face_score: float = 0.0
     has_face: bool = False     # True only if the subject was really LOCATED
     perceptual_hash: imagehash.ImageHash | None = None
@@ -292,7 +292,7 @@ def detect_persons(bgr):
 def _region_sharpness(gray, x0, y0, x1, y1, tiles=4):
     """Sharpness of a region, robust to a few crisp background edges sneaking into
     the box. Plain variance is dominated by the single sharpest thing present, so
-    we tile the region and take a high percentile — 'is most of the subject sharp?'
+    we tile the region and take a high percentile, 'is most of the subject sharp?'
     rather than 'is anything in this box sharp?'."""
     x0, y0 = max(0, int(x0)), max(0, int(y0))
     x1, y1 = min(gray.shape[1], int(x1)), min(gray.shape[0], int(y1))
@@ -338,8 +338,8 @@ def _pick_subject(persons, faces, img_w, img_h):
         subj = (x - pad_x, y - pad_y, x + bw + pad_x, y + bh + pad_y)
         # Confidence that there's a clear subject: bigger + surer = better.
         # A visible face is the strongest "clear subject" signal there is, so it
-        # still counts even when a person box was what located the subject —
-        # previously face detection was discarded entirely whenever a person was
+        # still counts even when a person box was what located the subject.
+        # Previously face detection was discarded entirely whenever a person was
         # found, which made the 'faces' factor useless on portrait-style shots.
         presence = max(
             min(1.0, (bw * bh) / (0.16 * img_w * img_h)) * conf,
@@ -386,7 +386,7 @@ def _load_metrics_image(path: Path) -> Image.Image | None:
                 img.draft("RGB", (METRICS_MAX_WIDTH, max(1, int(oh * METRICS_MAX_WIDTH / ow))))
             # Apply the camera's rotation BEFORE detection. Vertically shot frames
             # carry Orientation=6/8 and were previously analysed lying on their
-            # side, which badly hurts face and person detection — both models are
+            # side, which badly hurts face and person detection, both models are
             # trained on upright images.
             img = ImageOps.exif_transpose(img)
             img = img.convert("RGB")
@@ -420,8 +420,7 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     h, w = gray.shape[:2]
     # Whole-frame sharpness, measured the same robust (tiled) way as the subject
     # so the two are directly comparable for the focus-miss check.
-    # NOTE: `sharpness` MUST stay the raw global Laplacian variance — the
-    # blur_threshold slider (default 40) is calibrated against this scale. Using
+    # NOTE: `sharpness` MUST stay the raw global Laplacian variance: the # blur_threshold slider (default 40) is calibrated against this scale. Using
     # a tiled percentile here silently shifted the scale and rejected entire
     # shoots. The tiled value is kept separately, for the focus RATIO only.
     sharpness = float(cv2.Laplacian(gray, cv2.CV_32F).var())
@@ -444,7 +443,7 @@ def _normalize(values):
 
     Plain min-max is destroyed by a single outlier: in a 500-photo shoot one
     frame of chain-link fence or crowd texture has enormous edge variance, which
-    sets the max and collapses every other photo toward 0 — leaving only the
+    sets the max and collapses every other photo toward 0, leaving only the
     un-normalized exposure term and capping the whole shoot around 9/100.
     Clipping to percentiles keeps real magnitude differences while ignoring
     extremes. Small batches fall back to min-max (percentiles need samples)."""
@@ -502,7 +501,7 @@ def add_scores(cands, weights, blur_threshold=40.0):
         q = 0.0 if hi <= lo else max(0.0, min(1.0, (eff - lo) / (hi - lo)))
         gate = SHARP_GATE_FLOOR + (1.0 - SHARP_GATE_FLOOR) * q
         c.score = base * gate
-        # Only flag 'soft' when we actually located the subject — a guessed
+        # Only flag 'soft' when we actually located the subject: a guessed
         # center crop isn't trustworthy enough to warn on.
         c.soft = bool(c.has_face) and SHARP_SOFT_MARK > 0 and eff < blur_threshold * SHARP_SOFT_MARK
         if c.soft:
@@ -581,7 +580,7 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
 def _cpu_workers(n_items: int) -> int:
     # Metrics ops (OpenCV, PIL, numpy, YuNet) release the GIL, so threads give
     # real parallelism. Capped low (and overridable) to stay within the tight
-    # free-tier memory budget — each worker holds a decoded image + detector.
+    # free-tier memory budget, each worker holds a decoded image + detector.
     # 1 by default: Render Starter is 0.5 CPU / 512MB, so extra threads buy no
     # throughput and only add memory pressure. Raise via env on a bigger box.
     cap = int(os.getenv("CLUTCHCULL_WORKERS", "1"))
@@ -631,7 +630,7 @@ def _assemble_result(total, blurry, unreadable, selected, dup_map):
 
 
 def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, preset="Balanced"):
-    """Turn pre-computed metrics into keepers. Cheap + fast (no image work) — this
+    """Turn pre-computed metrics into keepers. Cheap + fast (no image work), this
     is what runs when the user tweaks the keeper/blur/duplicate/preset controls."""
     weights = SCORING_PRESETS.get(preset, SCORING_PRESETS["Balanced"])
     total = len(metrics)
@@ -642,10 +641,10 @@ def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, 
             continue
         c = _dict_to_candidate(m)
         # Reject if the whole frame is blurry (original gate) OR the SUBJECT
-        # itself is below the sharpness floor — a soft subject is a delete even
+        # itself is below the sharpness floor: a soft subject is a delete even
         # when the background is crisp.
         # Subject-based rejection ONLY when the subject was actually located.
-        # If we merely guessed (center fallback — which is also what happens if
+        # If we merely guessed (center fallback, which is also what happens if
         # the detector fails under memory pressure), fall back to the plain
         # frame blur gate. Never let a detector failure delete a whole shoot.
         subject_bad = (

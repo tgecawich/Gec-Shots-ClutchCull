@@ -119,9 +119,9 @@ SCORING_PRESETS = {
 # Instagram-ready canvas sizes -> (width, height) in pixels. Order matters:
 # the first entry is the default (3:4, the strongest single-image IG post size).
 CANVAS_RATIOS = {
-    "3:4 — 1080 × 1440 (best for IG posts)": (1080, 1440),
-    "4:5 — 1080 × 1350": (1080, 1350),
-    "1:1 — 1080 × 1080 (square)": (1080, 1080),
+    "3:4, 1080 × 1440 (best for IG posts)": (1080, 1440),
+    "4:5, 1080 × 1350": (1080, 1350),
+    "1:1, 1080 × 1080 (square)": (1080, 1080),
 }
 
 # Canvases render at up to this long-edge (2x Instagram's 1080/1440 display
@@ -699,7 +699,7 @@ def inject_custom_css() -> None:
     )
 
     # Professional-polish layer: cohesive typeface, accessible focus states,
-    # smooth motion, and a consistent surface/elevation system. Pure CSS —
+    # smooth motion, and a consistent surface/elevation system. Pure CSS,
     # brand colors and functionality are unchanged.
     st.markdown(
         """
@@ -872,7 +872,7 @@ def render_hero() -> None:
                 <p class="clutch-subheadline">
                     Upload a full shoot and ClutchCull uses AI subject detection to lock onto the
                     athlete, flag blurry frames, remove near-duplicates, and rank your sharpest
-                    shots — your originals stay untouched.
+                    shots, your originals stay untouched.
                 </p>
                 <div class="clutch-pills">
                     <span class="clutch-pill">AI subject detection</span>
@@ -898,7 +898,7 @@ def render_landing_hero() -> None:
                 <p class="clutch-subheadline">
                     Shot hundreds of frames at the game? ClutchCull uses AI subject detection to
                     lock onto the athlete, skip the blurry frames and duplicates, and surface your
-                    sharpest keepers — so you're done fast. Built from the sideline by Gec Shots.
+                    sharpest keepers so you're done fast. Built from the sideline by Gec Shots.
                 </p>
                 <div class="clutch-pills">
                     <span class="clutch-pill">100% free</span>
@@ -1006,8 +1006,7 @@ def render_built_from_sideline_card() -> None:
             <h3>Built from the sideline</h3>
             <p>
                 ClutchCull started inside the Gec Shots workflow: football, basketball, baseball,
-                hockey, and event galleries with hundreds of frames per shoot. The goal is simple —
-                cut the sorting time, keep the strongest images, and get photographers to the edit faster.
+                hockey, and event galleries with hundreds of frames per shoot. The goal is simple, cut the sorting time, keep the strongest images, and get photographers to the edit faster.
             </p>
         </div>
         """,
@@ -2590,10 +2589,10 @@ def render_rescue_bin(rejected_candidates: list[PhotoCandidate]) -> None:
 
     rescued = set(st.session_state.get("rescued_filenames", set()))
     with st.expander(
-        f"🩹 Removed shots — rescue any you want back ({len(rejected_candidates)})"
+        f"🩹 Removed shots, rescue any you want back ({len(rejected_candidates)})"
     ):
         st.caption(
-            "These were auto-removed as soft or blurry — but nothing is ever deleted. "
+            "These were auto-removed as soft or blurry but nothing is ever deleted. "
             "Check any frame you want back in your keepers. Closest-to-sharp shown first."
         )
         columns = st.columns(3)
@@ -2945,7 +2944,7 @@ def show_desktop_notice_dialog() -> None:
     )
     st.markdown(
         "**ClutchCull is strongest on a laptop or desktop.** That's where you can "
-        "upload a full shoot and cull hundreds of photos fast — mobile browsers "
+        "upload a full shoot and cull hundreds of photos fast, mobile browsers "
         "struggle with big batches."
     )
     st.markdown("On your phone right now? Two easy ways to switch:")
@@ -2962,7 +2961,7 @@ def render_landing_view() -> None:
     render_landing_hero()
     render_live_stats()
 
-    if st.button("Get Started — it's free", type="primary"):
+    if st.button("Get Started, it's free", type="primary"):
         if is_mobile_device():
             show_desktop_notice_dialog()
         else:
@@ -3023,7 +3022,7 @@ def render_mode_choice() -> None:
                 <h3 class="clutch-upload-title">📱 Instagram canvas posts</h3>
                 <p class="clutch-upload-copy">
                     Drop in your picks and get clean, ready-to-post versions centered on a
-                    white canvas — 3:4, 4:5, or 1:1, sized exactly for Instagram.
+                    white canvas, 3:4, 4:5, or 1:1, sized exactly for Instagram.
                 </p>
             </div>
             """,
@@ -3079,7 +3078,7 @@ def render_cull_report_section(results: dict, seconds_per_photo: int) -> None:
     render_section_header(
         "Share",
         "Show off your cull",
-        "Post this to your story — every share sends more photographers to ClutchCull.",
+        "Post this to your story, every share sends more photographers to ClutchCull.",
     )
     columns = st.columns([1, 2, 1])
     with columns[1]:
@@ -3105,7 +3104,7 @@ def render_impact_email_capture() -> None:
         st.markdown("#### 📊 Add your shoot to the Impact Dashboard (optional)")
         st.caption(
             "Enter your email to be counted in the community impact stats. "
-            "That's the only use — no spam, never shared."
+            "That's the only use, no spam, never shared."
         )
         email_input = st.text_input(
             "Email (optional)",
@@ -3118,7 +3117,7 @@ def render_impact_email_capture() -> None:
             st.session_state.impact_email_saved = True
             if st.session_state.user_email:
                 log_google_form_event("email_provided", email=st.session_state.user_email)
-                st.success("Thanks — you're counted in the impact stats. 🙌")
+                st.success("Thanks, you're counted in the impact stats. 🙌")
             st.rerun()
 
 
@@ -3162,7 +3161,7 @@ def render_cull_workspace(email: str) -> None:
         1,
         help="Higher = removes more near-identical burst frames.",
     )
-    st.sidebar.caption("All defaults are tuned by Gec Shots — adjust any time.")
+    st.sidebar.caption("All defaults are tuned by Gec Shots, adjust any time.")
 
     # Fixed metric input (drives the 'hours saved' stat only, not the cull).
     seconds_per_photo = 15

@@ -8,13 +8,13 @@ const SHEET_CSV =
 // partial data for that period: Streamlit minted a NEW session_id on every visit
 // (and re-logged session_start on every rerun), so its ids can't be counted as
 // people. Sourced from the original app's own user count, not derived from the
-// sheet — anything after LEGACY_CUTOVER is counted live below.
+// sheet, anything after LEGACY_CUTOVER is counted live below.
 const LEGACY_PHOTOGRAPHERS = 270;
 const LEGACY_CUTOVER = "2026-07-01";
 // Rolling window for the "since launch" strip, so it stays current on its own.
 const RECENT_WINDOW_DAYS = 7;
 
-// Live Impact Dashboard — fetched server-side from the shared Google Sheet
+// Live Impact Dashboard, fetched server-side from the shared Google Sheet
 // (same data source as the original app), so it stays visible and current.
 async function getImpact() {
   try {
@@ -207,7 +207,7 @@ export default async function Home() {
             <span><span className="check">✓</span> Photos stay private</span>
           </div>
 
-          {/* Live proof, above the fold — visible the moment the page opens. */}
+          {/* Live proof, above the fold, visible the moment the page opens. */}
           <div className="hero-impact" id="impact">
             <div className="sec-tag"><span className="pulse" />Live impact, updating in real time</div>
             <div className="stats" style={{ margin: "14px 0 0" }}>
@@ -218,7 +218,7 @@ export default async function Home() {
                 </div>
               ))}
             </div>
-            {/* Rolling window, computed live — shows current momentum without
+            {/* Rolling window, computed live, shows current momentum without
                 going stale the way a hardcoded launch stat would. */}
             {impact && impact.recentPeople > 0 && (
               <div className="impact-recent">

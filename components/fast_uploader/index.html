@@ -316,7 +316,7 @@
           ? Math.max(0, Math.round(100 - (sentBytes / originalBytes) * 100))
           : 0;
         doneBanner.textContent =
-          "✓ " + uploaded.length + " photos uploaded — " +
+          "✓ " + uploaded.length + " photos uploaded, " +
           (originalBytes / 1048576).toFixed(0) + " MB optimized down to " +
           (sentBytes / 1048576).toFixed(1) + " MB (" + savedPct + "% smaller).";
       }
@@ -442,7 +442,7 @@
       } else {
         if (dzH3) dzH3.textContent = "Drop your shoot here";
         if (dzP) dzP.textContent =
-          "Photos are optimized in your browser and uploaded in parallel — up to " +
+          "Photos are optimized in your browser and uploaded in parallel, up to " +
           "50× faster. Your full-resolution originals never leave your computer.";
       }
     }

@@ -57,7 +57,7 @@ export type Metric = { filename: string; unreadable?: boolean; [k: string]: unkn
 
 // Decoding a 27MP original costs ~105MB of RAM, so only a few at a time.
 const PREPARE_CONCURRENCY = 3;
-const SCORE_CHUNK = 8; // images per upload request — small so a chunk can't OOM the free tier
+const SCORE_CHUNK = 8; // images per upload request, small so a chunk can't OOM the free tier
 const SCORE_CONCURRENCY = 2; // requests in flight (pipelines upload + analysis)
 const CHUNK_RETRIES = 4; // survive a free-tier restart / transient blip
 const CHUNK_TIMEOUT_MS = 90_000;
@@ -108,7 +108,7 @@ export async function scoreUpload(
       const chunk = chunks[idx++];
       // Resize THIS chunk only, right before uploading it, then let it be
       // collected. Holding every resized copy (and decoding 6 full-res frames
-      // at once) made peak memory scale with shoot size — a 27MP original costs
+      // at once) made peak memory scale with shoot size: a 27MP original costs
       // ~105MB decoded, so a 500-photo shoot could spike past 700MB and crash
       // the tab. Streaming per chunk keeps usage flat at any shoot size.
       const ready = prepare ? await mapLimit(chunk, PREPARE_CONCURRENCY, prepare) : chunk;

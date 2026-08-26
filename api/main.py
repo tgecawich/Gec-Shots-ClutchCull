@@ -1,4 +1,4 @@
-"""ClutchCull API — FastAPI backend for the Next.js front-end.
+"""ClutchCull API, FastAPI backend for the Next.js front-end.
 
 Exposes the culling engine + canvas export over HTTP. Browsers upload photos
 directly to Cloudflare R2 via presigned URLs; this service pulls them, runs
@@ -161,7 +161,7 @@ async def cull_upload(
     top_n: int = Form(35),
     preset: str = Form("Balanced"),
 ):
-    """Direct multipart cull — browser posts resized previews, no R2 needed.
+    """Direct multipart cull, browser posts resized previews, no R2 needed.
 
     Used for dev and as a simple fallback; production uses presign + /cull for
     direct-to-R2 uploads.
@@ -182,8 +182,7 @@ async def cull_upload(
 @app.post("/score-upload")
 def score_upload(files: list[UploadFile] = File(...)):
     """Compute + return raw per-image metrics (parallel). The browser caches
-    these and calls /rank to (re)build keepers instantly when sliders change —
-    no re-upload, no recompute."""
+    these and calls /rank to (re)build keepers instantly when sliders change, no re-upload, no recompute."""
     with tempfile.TemporaryDirectory() as tmp:
         paths = []
         for f in files:

@@ -16,10 +16,10 @@ engine (subject-aware sharpness via YuNet, near-duplicate removal, weighted
 scoring) and white-canvas export.
 
 ## Endpoints
-- `GET /health` — status + whether R2 is configured
-- `POST /presign` — presigned R2 PUT URLs for browser uploads
-- `POST /cull` — analyze a batch, return ranked keepers
-- `POST /canvas` — build Instagram-ready white-canvas posts
+- `GET /health`, status + whether R2 is configured
+- `POST /presign`, presigned R2 PUT URLs for browser uploads
+- `POST /cull`, analyze a batch, return ranked keepers
+- `POST /canvas`, build Instagram-ready white-canvas posts
 
 ## Required secrets (Space → Settings → Variables and secrets)
 `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`,

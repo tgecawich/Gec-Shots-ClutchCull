@@ -4,7 +4,7 @@
 
 /* Lighter neutral greys for the chrome, with the ClutchCull brand colours kept
    as real accents. The old design didn't look AI-generated because it used
-   orange and purple — it looked that way because a three-stop rainbow gradient
+   orange and purple: it looked that way because a three-stop rainbow gradient
    was painted onto 32 different surfaces. Here the gradient is a SIGNATURE:
    logo mark, primary action, one hero word, hairline rules. Everything else
    uses solid brand colour or plain grey, so photos stay the loudest thing. */
@@ -32,7 +32,7 @@ body {
 }
 a { color: inherit; text-decoration: none; }
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
-/* Gradient text used ONCE, on the hero word — a brand signature rather than a
+/* Gradient text used ONCE, on the hero word: a brand signature rather than a
    default treatment. Everywhere else text is plain. */
 .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero-title, .app-h1, .res-title, .logo, .sec-head h2, h1, h2 { font-family: var(--font-display), var(--font-ui), sans-serif; letter-spacing: -0.02em; }
@@ -60,7 +60,7 @@ nav { position: sticky; top: 0; z-index: 50; background: var(--bg); border-botto
 .eyebrow .pulse, .sec-tag .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 h1.hero-title { font-size: clamp(2.6rem, 6.5vw, 4.6rem); font-weight: 800; line-height: 1.02; letter-spacing: -0.04em; }
 .hero-sub { color: var(--muted); font-size: clamp(1.05rem, 2vw, 1.3rem); margin: 22px auto 0; max-width: 620px; line-height: 1.6; }
-/* The payoff line — brighter and heavier than the sub so it reads as the promise, not more detail. */
+/* The payoff line, brighter and heavier than the sub so it reads as the promise, not more detail. */
 .hero-promise { color: var(--text); font-weight: 600; font-size: clamp(1rem, 1.7vw, 1.15rem);
   margin: 14px auto 0; max-width: 620px; line-height: 1.55; }
 .hero-cta { display: flex; gap: 14px; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
@@ -145,7 +145,7 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; color: var(--mute
 .app-actions { display: flex; align-items: center; gap: 16px; margin: 22px 0; flex-wrap: wrap; }
 .app-actions .btn { font-size: 1.05rem; padding: 14px 28px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-/* Guidance for unusable files (RAW/HEIC) as well as real errors — wraps to its
+/* Guidance for unusable files (RAW/HEIC) as well as real errors, wraps to its
    own line so the explanation stays readable next to the Cull button. */
 .app-error { color: #fca5a5; font-weight: 600; line-height: 1.5; max-width: 62ch; flex-basis: 100%; }
 .summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 26px; }
@@ -353,7 +353,7 @@ button.keeper { text-align: left; padding: 0; cursor: pointer; font-family: inhe
   background: rgba(255,255,255,0.06); border: 1px solid var(--border); }
 .show-more:hover { background: rgba(255,255,255,0.12); }
 
-/* Skip layout/paint for offscreen photo cards — with hundreds of full-res
+/* Skip layout/paint for offscreen photo cards, with hundreds of full-res
    originals this is the difference between smooth scrolling and an OOM crash. */
 .keeper, .dupe-frame, .canvas-item { content-visibility: auto; contain-intrinsic-size: 300px 380px; }
 

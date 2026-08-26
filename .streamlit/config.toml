@@ -1,4 +1,4 @@
-# Streamlit server config — tuned for large photo-batch uploads.
+# Streamlit server config, tuned for large photo-batch uploads.
 # Raise the upload caps well above the 200 MB default so full shoots don't
 # get rejected, and give the websocket room for big multi-file transfers.
 

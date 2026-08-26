@@ -10,7 +10,7 @@ import { makeCullReport } from "@/lib/report";
 import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
-// Visual presets — plain labels the photographer recognises, mapped to the
+// Visual presets, plain labels the photographer recognises, mapped to the
 // engine's internal preset names.
 const PRESET_META: { value: string; label: string; icon: string; hint: string }[] = [
   { value: "Sports Action", label: "Sports", icon: "🏟️", hint: "Fast action, helmets, motion" },
@@ -27,7 +27,7 @@ const BADGE_ICON: Record<string, string> = {
   "Clean contrast": "🌗", "Well-exposed": "☀️", "Strong pick": "✅",
 };
 // Real deployed domain. The previous value (gec-shots-clutchcull, no hyphen)
-// was dead — every mobile visitor was told to open a 404.
+// was dead, every mobile visitor was told to open a 404.
 const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
 
 // Hand-building one padded canvas post takes ~60s (measured by Gec Shots),
@@ -128,7 +128,7 @@ export default function AppPage() {
   const ingest = useCallback((list: FileList | null, alsoSelect: boolean) => {
     if (!list) return;
     // Explain unusable files instead of silently ignoring them. Sports shooters
-    // drop RAW (.CR2/.NEF/.ARW) and iPhone users drop .HEIC — previously nothing
+    // drop RAW (.CR2/.NEF/.ARW) and iPhone users drop .HEIC, previously nothing
     // happened at all, so the app looked broken and they left.
     const all = Array.from(list);
     const ok = (f: File) => /\.(jpe?g|png|webp)$/i.test(f.name) || isRaw(f);
@@ -145,7 +145,7 @@ export default function AppPage() {
       setError("");
     }
     if (!arr.length) return;
-    warmApi(); // photos added — make sure the API is awake before they cull
+    warmApi(); // photos added, make sure the API is awake before they cull
     if (!alsoSelect) { metricsRef.current = null; setCanRerank(false); } // new photos → cached metrics stale
     setFilesMap((prev) => { const m = { ...prev }; arr.forEach((f) => (m[f.name] = f)); return m; });
     // Thumbnails are created lazily for on-screen photos only (see effect below).
@@ -168,7 +168,7 @@ export default function AppPage() {
     setLoading(true); setError(""); setCanvases([]); setReport(""); setMinutesLogged(false); setNote("");
     const t0 = performance.now();
     try {
-      // Fast path: we already analyzed this exact set of photos — just re-rank.
+      // Fast path: we already analyzed this exact set of photos, just re-rank.
       const cached = metricsRef.current;
       if (cached && cached.key === fileKey) {
         setPhase("Ranking your keepers…"); setProgress(0.9);
@@ -192,7 +192,7 @@ export default function AppPage() {
         setPhase("Ranking your keepers…"); setProgress(0.95);
         finishCull(await rankMetrics(metrics, settings), t0, true);
       } catch (e) {
-        // Only fall back to a single-request cull for SMALL batches — a big one
+        // Only fall back to a single-request cull for SMALL batches: a big one
         // in one request would overwhelm the server. Big batches surface the
         // error (the chunk uploader already retried each piece).
         if (files.length <= 40) {
@@ -215,7 +215,7 @@ export default function AppPage() {
   }
 
   // Instant re-rank: when metrics are cached and the user nudges a slider/preset,
-  // rebuild keepers from the server in ~a moment — no re-upload, no re-analysis.
+  // rebuild keepers from the server in ~a moment, no re-upload, no re-analysis.
   useEffect(() => {
     if (!canRerank || !metricsRef.current || metricsRef.current.key !== fileKey) return;
     const id = setTimeout(async () => {
@@ -287,7 +287,7 @@ export default function AppPage() {
       setNote(
         `${files.length} rating file${files.length === 1 ? "" : "s"} downloaded. Unzip them next to your photos, ` +
         `then in Lightroom select the folder and choose Metadata → Read Metadata from File. Your keepers will be 5 stars. ` +
-        `If you have already edited these photos in Lightroom, back up your existing .xmp files first — these replace them.`
+        `If you have already edited these photos in Lightroom, back up your existing .xmp files first, these replace them.`
       );
     } catch {
       setError("Couldn't build the Lightroom ratings file.");
@@ -323,7 +323,7 @@ export default function AppPage() {
     setBusy("Zipping canvas posts…");
     await downloadZip(canvases.map((c) => ({ name: c.name, blob: c.blob })), "clutchcull_canvas.zip");
     logExport(); // counts as an export
-    // Canvas posts are photos processed AND real time saved — counted once per
+    // Canvas posts are photos processed AND real time saved, counted once per
     // generated batch, so re-downloading the same set doesn't inflate anything.
     if (!canvasCounted) {
       trackCanvas(canvases.length, (canvases.length * CANVAS_SECONDS_EACH) / 60, email);
@@ -527,7 +527,7 @@ export default function AppPage() {
                   </div>
                 )}
 
-                {/* View switcher — clearer than stacked headings. */}
+                {/* View switcher, clearer than stacked headings. */}
                 <div className="views">
                   <button className={view === "keepers" ? "on" : ""} onClick={() => { setView("keepers"); setLimit(PAGE); }}>Keepers <b>{results.keepers.length}</b></button>
                   <button className={view === "review" ? "on" : ""} onClick={() => { setView("review"); setLimit(PAGE); }}>Review <b>{results.rejected.length}</b></button>
@@ -744,4 +744,4 @@ export default function AppPage() {
   );
 }
 
-const pct = (v: number | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+const pct = (v: number | undefined) => (v == null ? "-" : `${Math.round(v * 100)}%`);
