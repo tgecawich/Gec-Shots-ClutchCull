@@ -1,3 +1,26 @@
+# ML models are downloaded at runtime / baked into the Docker image
 models/
+
+# Python
 __pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Local env
+.env
+.env.local
+
+# Generated output
 cull_report.png
+usage_stats.json
+
+# OS cruft
+.DS_Store
+**/.DS_Store
