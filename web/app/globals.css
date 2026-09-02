@@ -79,11 +79,14 @@ h1.hero-title { font-size: clamp(2.6rem, 6.5vw, 4.6rem); font-weight: 800; line-
 .mock-bar i:nth-child(2) { background: #febc2e; } .mock-bar i:nth-child(3) { background: #28c840; }
 .mock-bar .url { margin-left: 14px; color: var(--muted); font-size: 0.8rem; }
 .mock-body { padding: 26px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
-.shot { aspect-ratio: 4/5; border-radius: 12px; position: relative; overflow: hidden;
-  background: linear-gradient(135deg, #2b2836, #332b2a); }
+.shot { aspect-ratio: 4/5; border-radius: 12px; position: relative; overflow: hidden; background: #17171c; }
+.shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Keeps the badges legible over any photo without dimming the whole frame. */
+.shot::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,.42) 0%, transparent 26%, transparent 62%, rgba(0,0,0,.55) 100%); }
 
-.shot .tag { position: absolute; top: 10px; left: 10px; z-index: 2; font-size: 0.68rem; font-weight: 800; padding: 5px 9px; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; }
-.shot .score { position: absolute; bottom: 10px; right: 10px; z-index: 2; font-size: 0.72rem; font-weight: 800; padding: 5px 9px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+.shot .tag { position: absolute; top: 10px; left: 10px; z-index: 3; font-size: 0.68rem; font-weight: 800; padding: 5px 9px; border-radius: 8px; background: rgba(0, 0, 0, 0.55); color: #fff; }
+.shot .score { position: absolute; bottom: 10px; right: 10px; z-index: 3; font-family: var(--font-mono), monospace; font-size: 0.72rem; font-weight: 800; padding: 5px 9px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 72px 0; }
 .stat { position: relative; border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; background: var(--panel); overflow: hidden; }

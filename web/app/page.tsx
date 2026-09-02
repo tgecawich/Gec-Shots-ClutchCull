@@ -71,13 +71,15 @@ async function getImpact() {
   }
 }
 
+// Real frames from a real shoot, scored by the actual engine. A photography
+// tool whose landing page shows no photographs asks people to take its word.
 const shots = [
-  { tag: "⚡ Sharp subject", score: 98 },
-  { tag: "🎯 Clear subject", score: 95 },
-  { tag: "☀ Well-exposed", score: 91 },
-  { tag: "⚡ Sharp subject", score: 88 },
-  { tag: "🔍 Rich detail", score: 86 },
-  { tag: "🌗 Clean contrast", score: 83 },
+  { src: "/shots/IMG_5429.jpg", tag: "Sharp subject", score: 96, alt: "Basketball player rising for a shot, arms extended" },
+  { src: "/shots/IMG_6850.jpg", tag: "Clear subject", score: 94, alt: "Two players contesting the ball at midcourt" },
+  { src: "/shots/IMG_5278.jpg", tag: "Rich detail", score: 91, alt: "Player driving toward the basket" },
+  { src: "/shots/IMG_5318.jpg", tag: "Sharp subject", score: 89, alt: "Guard bringing the ball up the floor" },
+  { src: "/shots/IMG_7120.jpg", tag: "Clean contrast", score: 86, alt: "Wrestlers locked up mid-match" },
+  { src: "/shots/IMG_5554.jpg", tag: "Well-exposed", score: 84, alt: "Defender closing out on a shooter" },
 ];
 
 const features = [
@@ -234,6 +236,7 @@ export default async function Home() {
             <div className="mock-body">
               {shots.map((s, i) => (
                 <div className="shot" key={i}>
+                  <img src={s.src} alt={s.alt} loading={i < 3 ? "eager" : "lazy"} />
                   <span className="tag">{s.tag}</span>
                   <span className="score">{s.score}</span>
                 </div>
