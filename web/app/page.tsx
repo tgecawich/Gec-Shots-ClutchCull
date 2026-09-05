@@ -11,8 +11,11 @@ const SHEET_CSV =
 // sheet, anything after LEGACY_CUTOVER is counted live below.
 const LEGACY_PHOTOGRAPHERS = 270;
 const LEGACY_CUTOVER = "2026-07-01";
-// Rolling window for the "since launch" strip, so it stays current on its own.
-const RECENT_WINDOW_DAYS = 7;
+// Rolling window for the momentum strip, so it stays current on its own.
+// 30 rather than 7: a week is noisy enough that a single quiet stretch or an
+// API outage dominates it, and the strip then reads as decline rather than as
+// normal variance. A month is the more honest summary of current activity.
+const RECENT_WINDOW_DAYS = 30;
 
 // Live Impact Dashboard, fetched server-side from the shared Google Sheet
 // (same data source as the original app), so it stays visible and current.
