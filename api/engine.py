@@ -30,10 +30,12 @@ RESAMPLING = getattr(Image, "Resampling", Image)
 # Blur detection is extremely resolution-sensitive: measured on the same photo,
 # sharp-vs-soft separation is only ~4x at 1200px but ~28x at 2400px (downscaling
 # is itself a blur filter, so it hides the very thing we're testing for).
-# 1800 is the memory-safe default for a 512MB instance while still giving ~11x
-# sharp-vs-soft separation (vs only 4x at the old 1200px). Raise to 2400 (~28x)
-# via env if you move to a bigger box.
-METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "1800"))
+# Dropped from 1800 to 1400 after the service crash-looped and Render suspended
+# it. Measured peak at 1800 was 499MB against a 512MB limit: no leak, it
+# plateaus, but 13MB of headroom is not survivable once a second request
+# overlaps. 1400 measures ~423MB, leaving real room. Blur separation drops from
+# ~11x to ~8x, still far above the ~4x that caused the original ranking bug.
+METRICS_MAX_WIDTH = int(os.getenv("CLUTCHCULL_METRICS_WIDTH", "1400"))
 # Focus-miss guard: if the subject region is much softer than the overall
 # frame, focus probably landed on the background, demote it. Tunable at runtime.
 FOCUS_MIN = float(os.getenv("CLUTCHCULL_FOCUS_MIN", "0.6"))   # subject/frame sharpness at/above this = fine
@@ -77,10 +79,12 @@ YOLOX_MODEL_URL = (
     "https://github.com/opencv/opencv_zoo/raw/main/models/"
     "object_detection_yolox/object_detection_yolox_2022nov.onnx"
 )
-# 416 not 640: on a 512MB box the detector's activations are the single biggest
-# memory consumer (640 -> 349MB peak, 416 -> 282MB). Sports subjects are large in
-# frame, so the smaller input costs little accuracy. Env-tunable if you size up.
-YOLOX_SIZE = int(os.getenv("CLUTCHCULL_YOLOX_SIZE", "320"))
+# The detector's activations are the single biggest memory consumer on a 512MB
+# box (640 -> 349MB peak, 416 -> 282MB). Measured 320 vs 256 vs 224 on real
+# frames: 256 saves ~11MB over 320 and finds exactly the same people, while 224
+# starts missing them. So 256 is the floor worth taking. Env-tunable if you move
+# to a bigger instance.
+YOLOX_SIZE = int(os.getenv("CLUTCHCULL_YOLOX_SIZE", "256"))
 PERSON_CONF = float(os.getenv("CLUTCHCULL_PERSON_CONF", "0.35"))
 # ONE shared detector, not thread-local: a per-thread copy would load the whole
 # network per concurrent request and blow a 512MB box instantly. cv2 DNN forward
@@ -587,6 +591,24 @@ def _cpu_workers(n_items: int) -> int:
     return max(1, min(cap, os.cpu_count() or 2, n_items))
 
 
+def _release_memory() -> None:
+    """Hand freed pages back to the OS.
+
+    Python releases the image arrays promptly, but glibc holds the arena, so
+    RSS stays pinned at peak and the next request pushes the container over its
+    limit. malloc_trim returns it. Best-effort: absent on macOS and musl.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 def compute_metrics_batch(image_paths) -> list[dict]:
     """Compute per-image metrics in PARALLEL. Each dict is JSON-serializable and
     self-contained, so the browser can cache it and re-rank (change sliders)
@@ -603,9 +625,12 @@ def compute_metrics_batch(image_paths) -> list[dict]:
 
     workers = _cpu_workers(len(paths))
     if workers == 1:
-        return [work(p) for p in paths]
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(work, paths))
+        out = [work(p) for p in paths]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            out = list(ex.map(work, paths))
+    _release_memory()
+    return out
 
 
 def _assemble_result(total, blurry, unreadable, selected, dup_map):

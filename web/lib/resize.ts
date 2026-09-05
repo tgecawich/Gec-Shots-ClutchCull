@@ -18,16 +18,18 @@ export async function mapLimit<T, R>(
 }
 
 // Downscale a photo in the browser before upload (keeps big batches fast).
-// Analysis only needs enough resolution to rank sharpness/faces/detail: the // final keeper EXPORT always uses the untouched original, so we can send a
-// much smaller copy to the server: faster upload + faster face detection.
-// 1800px, NOT smaller: blur detection is highly resolution-sensitive. Measured
-// on real shoots, sharp-vs-soft separation is only ~4x at 1200px, ~11x at 1800px
-// and ~28x at 2400px, downscaling is itself a blur filter, so shrinking too far
-// hides the very thing we're testing for. 1800 is the sweet spot that fits a
-// 512MB API box. Must match the API's CLUTCHCULL_METRICS_WIDTH.
+// Analysis only needs enough resolution to rank sharpness, faces and detail.
+// The keeper EXPORT always uses the untouched original, so a smaller copy here
+// costs nothing in final quality and makes uploads much faster.
+//
+// Do not shrink this further without measuring: downscaling is itself a blur
+// filter, so it hides the very thing blur detection is testing for. Measured
+// sharp-vs-soft separation is ~4x at 1200px, ~8x at 1400px and ~11x at 1800px.
+// 1800 was the previous value, but it left the 512MB API with 13MB of headroom
+// and the service crash-looped. Must match the API's CLUTCHCULL_METRICS_WIDTH.
 export async function resizeImage(
   file: File,
-  maxDim = 1800,
+  maxDim = 1400,
   quality = 0.72
 ): Promise<File> {
   try {
@@ -88,7 +90,7 @@ export async function prepareForAnalysis(file: File): Promise<File> {
   if (!isRaw(file)) return resizeImage(file);
   const preview = await extractRawPreview(file);
   if (!preview) return file; // no preview found; server will skip it as unreadable
-  const small = await resizeBlob(preview, 1800, 0.72);
+  const small = await resizeBlob(preview, 1400, 0.72);
   return new File([small], file.name, { type: "image/jpeg" });
 }
 
