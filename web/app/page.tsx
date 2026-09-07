@@ -76,13 +76,17 @@ async function getImpact() {
 
 // Real frames from a real shoot, scored by the actual engine. A photography
 // tool whose landing page shows no photographs asks people to take its word.
+// These are the top six keepers from a 33 frame soccer shoot: the files were
+// downscaled to 1400px exactly as the browser does before upload, run through
+// cull(), and the badge and score below are whatever the engine returned. The
+// crops are centred on the person the engine detected, not on the frame.
 const shots = [
-  { src: "/shots/IMG_5429.jpg", tag: "Sharp subject", score: 96, alt: "Basketball player rising for a shot, arms extended" },
-  { src: "/shots/IMG_6850.jpg", tag: "Clear subject", score: 94, alt: "Two players contesting the ball at midcourt" },
-  { src: "/shots/IMG_5278.jpg", tag: "Rich detail", score: 91, alt: "Player driving toward the basket" },
-  { src: "/shots/IMG_5318.jpg", tag: "Sharp subject", score: 89, alt: "Guard bringing the ball up the floor" },
-  { src: "/shots/IMG_7120.jpg", tag: "Clean contrast", score: 86, alt: "Wrestlers locked up mid-match" },
-  { src: "/shots/IMG_5554.jpg", tag: "Well-exposed", score: 84, alt: "Defender closing out on a shooter" },
+  { src: "/shots/D91A7783.jpg", tag: "Sharp subject", score: 88, alt: "Soccer player jogging upfield under a burning sunset sky" },
+  { src: "/shots/D91A7300.jpg", tag: "Clean contrast", score: 87, alt: "Two teammates leaning together on the bench between shifts" },
+  { src: "/shots/D91A7770.jpg", tag: "Sharp subject", score: 82, alt: "Attacker and keeper converging on the ball at the near post" },
+  { src: "/shots/D91A7758.jpg", tag: "Sharp subject", score: 69, alt: "Player walking the touchline under stadium lights at dusk" },
+  { src: "/shots/D91A7763.jpg", tag: "Clear subject", score: 69, alt: "Midfielder waiting for a restart against a storm-blue sky" },
+  { src: "/shots/D91A7166.jpg", tag: "Rich detail", score: 67, alt: "Two players shoulder to shoulder chasing a loose ball" },
 ];
 
 const features = [
