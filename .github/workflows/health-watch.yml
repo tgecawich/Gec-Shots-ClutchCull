@@ -1,0 +1,43 @@
+# API watchdog. The culling API went down for four days in September and
+# nothing said a word; the only symptom was two dashboard counters disagreeing.
+# This pings /health on a schedule and fails loudly when the API is unhealthy,
+# and GitHub emails the repo owner whenever a scheduled workflow fails.
+#
+# Set the repo variable API_URL (Settings > Secrets and variables > Actions >
+# Variables) to the deployed API base, e.g. https://<service>.onrender.com
+# Scheduled runs are best-effort on GitHub's side (they can lag minutes), which
+# is fine: the goal is "know within the hour", not "know within seconds".
+name: API health watch
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /health
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::error::API_URL repo variable is not set"; exit 1
+          fi
+          # Render Starter doesn't sleep, so a slow first byte already means
+          # trouble; 30s is generous. Retry once to ignore a single blip.
+          for attempt in 1 2; do
+            code=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$API_URL/health" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthy:"; cat /tmp/health.json
+              # Surface the knobs that matter so a bad deploy (wrong width /
+              # detector size) is visible in the run log at a glance.
+              grep -o '"metrics_width":[0-9]*\|"yolox_size":[0-9]*\|"person_detection":[a-z]*' /tmp/health.json || true
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code"; sleep 20
+          done
+          echo "::error::API /health returned $code - service may be down or suspended"
+          exit 1

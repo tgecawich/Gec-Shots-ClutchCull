@@ -29,3 +29,8 @@ usage_stats.json
 .claude/
 .vscode/
 .idea/
+
+# Jersey training data (local only: crops and labels are not source)
+api/tools/crops/
+api/tools/labels.csv
+api/tools/*.onnx
