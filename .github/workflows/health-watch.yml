@@ -3,8 +3,12 @@
 # This pings /health on a schedule and fails loudly when the API is unhealthy,
 # and GitHub emails the repo owner whenever a scheduled workflow fails.
 #
-# Set the repo variable API_URL (Settings > Secrets and variables > Actions >
-# Variables) to the deployed API base, e.g. https://<service>.onrender.com
+# The URL below is the default and needs no setup. It is deliberately a repo
+# VARIABLE override rather than a secret: this value is already inlined into
+# the public client bundle, so it is not sensitive, and secrets get masked as
+# *** in logs, which would hide the very output this job exists to show. To
+# point the watchdog somewhere else, set the API_URL repo variable (Settings >
+# Secrets and variables > Actions > Variables); no commit needed.
 # Scheduled runs are best-effort on GitHub's side (they can lag minutes), which
 # is fine: the goal is "know within the hour", not "know within seconds".
 name: API health watch
@@ -21,11 +25,9 @@ jobs:
     steps:
       - name: Ping /health
         env:
-          API_URL: ${{ vars.API_URL }}
+          API_URL: ${{ vars.API_URL || 'https://gec-shots-clutchcull-api.onrender.com' }}
         run: |
-          if [ -z "$API_URL" ]; then
-            echo "::error::API_URL repo variable is not set"; exit 1
-          fi
+          echo "checking $API_URL/health"
           # Render Starter doesn't sleep, so a slow first byte already means
           # trouble; 30s is generous. Retry once to ignore a single blip.
           for attempt in 1 2; do
