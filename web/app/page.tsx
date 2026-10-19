@@ -89,13 +89,10 @@ export default async function Home() {
                   <div className={s.cardCap}>
                     photos culled for {impact.people.toLocaleString()} photographers
                   </div>
+                  {/* Momentum deliberately lives in the impact band below and
+                      not here too: repeating the same figure twice inside one
+                      scroll reads as padding rather than emphasis. */}
                   <div className={s.cardLive}><i />Updating in real time</div>
-                  {impact.recentPhotos > 0 && (
-                    <div className={s.mom}>
-                      <b>+{Math.round(impact.recentPhotos).toLocaleString()}</b> photos in the last{" "}
-                      {RECENT_WINDOW_DAYS} days
-                    </div>
-                  )}
                 </>
               ) : (
                 <div className={s.cardCap} style={{ marginTop: 10 }}>{FALLBACK_LINE}</div>
@@ -113,6 +110,46 @@ export default async function Home() {
           </div>
         </div>
       </header>
+
+      {/* Impact gets a full-width band of its own, directly under the fold.
+          Every figure is summed from the live usage log, so none of it can
+          drift ahead of what actually happened. */}
+      {impact && (
+        <section className={s.impact}>
+          <div className={`${s.wrap} ${s.impactIn}`}>
+            <div className={s.impactLab}><span className={s.pulse} />Live impact · updating in real time</div>
+            <div className={s.bigStats}>
+              <div className={s.bigStat}>
+                <div className={s.bigN}>{Math.round(impact.photos).toLocaleString()}</div>
+                <div className={s.bigL}>Photos culled</div>
+              </div>
+              <div className={s.bigStat}>
+                <div className={s.bigN}>{impact.people.toLocaleString()}</div>
+                <div className={s.bigL}>Photographers</div>
+              </div>
+              <div className={s.bigStat}>
+                <div className={s.bigN}>{Math.round(impact.exports).toLocaleString()}</div>
+                <div className={s.bigL}>Exports</div>
+              </div>
+              <div className={s.bigStat}>
+                <div className={s.bigN}>{Math.round(impact.hours).toLocaleString()}</div>
+                <div className={s.bigL}>Hours saved</div>
+              </div>
+            </div>
+            {impact.recentPhotos > 0 && (
+              <div className={s.momentum}>
+                <span className={s.momTag}>Last {RECENT_WINDOW_DAYS} days</span>
+                <span>
+                  <b>{Math.round(impact.recentPhotos).toLocaleString()}</b> photos culled
+                  {impact.recentPeople > 0 && (
+                    <> and <b>{impact.recentPeople.toLocaleString()}</b> new photographers</>
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className={s.ticker}>
         <div className={s.run}>
@@ -162,22 +199,6 @@ export default async function Home() {
             <span>EG Avengers v. La Salle</span>
           </div>
 
-          {impact && (
-            <div className={s.stats}>
-              <div className={s.stat}>
-                <div className={s.statN}>{Math.round(impact.photos).toLocaleString()}</div>
-                <div className={s.statL}>photos culled since launch</div>
-              </div>
-              <div className={s.stat}>
-                <div className={s.statN}>{impact.people.toLocaleString()}</div>
-                <div className={s.statL}>photographers, no account required</div>
-              </div>
-              <div className={s.stat}>
-                <div className={s.statN}>{Math.round(impact.hours).toLocaleString()}</div>
-                <div className={s.statL}>hours handed back to shooters</div>
-              </div>
-            </div>
-          )}
         </div>
       </section>
 

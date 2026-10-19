@@ -128,8 +128,9 @@
 }
 .cardK { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--violet); }
 .cardBig {
-  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 34px;
-  color: var(--text); margin-top: 10px; letter-spacing: -0.03em; line-height: 1.1;
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 46px;
+  color: var(--text); margin-top: 8px; letter-spacing: -0.04em; line-height: 1.05;
+  font-variant-numeric: tabular-nums;
 }
 .cardCap { font-size: 13px; color: #b9b9c2; margin-top: 4px; }
 .cardLive {
@@ -137,11 +138,6 @@
   color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;
 }
 .cardLive i { width: 6px; height: 6px; border-radius: 50%; background: var(--violet); display: block; }
-/* A cumulative total alone cannot tell a reader whether this is alive or was
-   abandoned two years ago. The rolling 30-day figure answers that in one line. */
-.mom { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
-.mom b { color: var(--pink); font-weight: 700; }
-
 /* Photos above the fold: this is a tool for photographs, so the hero has to
    contain some. The best frames wear the same accent border the app uses for
    keepers, which makes the hero the product demonstrating itself. */
@@ -159,6 +155,51 @@
   color: var(--ink); font-size: 8px; font-weight: 800; letter-spacing: 0.12em;
   padding: 3px 7px; border-radius: var(--r-sm);
 }
+
+/* ── live impact band ────────────────────────────────────────────────────
+ * The original design put impact in four large boxes directly under the fold,
+ * and it hit harder than a side card does. This is that force in the current
+ * language: full width, one continuous gradient rule across the whole row, and
+ * numbers big enough to read from across a room.
+ *
+ * The rule is drawn ONCE on the container rather than per-stat, so the four
+ * columns sit under a single unbroken gradient instead of four disconnected
+ * dashes that each restart the ramp.
+ */
+.impact { background: var(--panel); border-top: 1px solid var(--line); position: relative; overflow: hidden; }
+.impact::before {
+  content: ""; position: absolute; left: 12%; top: -340px; width: 760px; height: 620px;
+  background: radial-gradient(ellipse, rgba(138, 77, 255, 0.16) 0%, transparent 65%);
+}
+.impactIn { position: relative; z-index: 2; padding: var(--s6) 0 var(--s5); }
+.impactLab {
+  display: flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 800;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--orange); margin-bottom: var(--s4);
+}
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); flex: none; animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+.bigStats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s4); padding-top: var(--s3); border-top: 2px solid transparent; border-image: var(--grad) 1; }
+.bigStat { min-width: 0; }
+.bigN {
+  font-family: var(--font-display), sans-serif; font-weight: 800;
+  font-size: clamp(34px, 4.4vw, 62px); line-height: 1; letter-spacing: -0.04em;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.bigL { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-top: 12px; }
+
+/* Momentum: a cumulative total cannot say whether this is alive or abandoned.
+   Given its own full-width strip because that question is the one a first-time
+   visitor is actually asking. */
+.momentum {
+  margin-top: var(--s5); padding: var(--s3); border-radius: var(--r);
+  background: rgba(255, 146, 49, 0.07); border: 1px solid rgba(255, 146, 49, 0.22);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  font-size: 15px; color: #d5d5dc;
+}
+.momentum b { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 19px; color: var(--orange); letter-spacing: -0.02em; }
+.momTag { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); background: var(--orange); padding: 4px 9px; border-radius: var(--r-sm); }
 
 /* ── ticker ──────────────────────────────────────────────────────────── */
 .ticker { background: var(--grad); color: #fff; padding: 11px 0; overflow: hidden; white-space: nowrap; }
@@ -201,15 +242,6 @@
 .scLow { background: var(--panel-2); color: var(--muted); }
 .capRow { display: flex; justify-content: space-between; gap: var(--s3); margin-top: 12px; font-size: 12px; color: var(--muted); }
 
-/* one accent each, so the trio reads as a palette rather than a smear */
-.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); margin-top: var(--s7); }
-.stat { padding-top: var(--s2); border-top: 2px solid; }
-.stat:nth-child(1) { border-color: var(--violet); }
-.stat:nth-child(2) { border-color: var(--pink); }
-.stat:nth-child(3) { border-color: var(--orange); }
-.statN { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 46px; color: var(--text); letter-spacing: -0.04em; line-height: 1.1; }
-.statL { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 26ch; }
-
 .proofGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); }
 .proofGrid h3 { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
 .proofGrid p { font-size: 14px; color: var(--muted); margin: 0; }
@@ -244,7 +276,8 @@
   .l1 { font-size: 36px; }
   .l2 { font-size: 58px; }
   .band h2 { font-size: 34px; }
-  .stats, .proofGrid { grid-template-columns: 1fr; gap: var(--s4); }
+  .proofGrid { grid-template-columns: 1fr; gap: var(--s4); }
+  .bigStats { grid-template-columns: 1fr 1fr; gap: var(--s4) var(--s3); }
   .sec { padding: var(--s6) 0; }
   .navLinks { display: none; }
 }
@@ -252,4 +285,5 @@
   .shots { grid-template-columns: 1fr 1fr; }
   .l2 { font-size: 44px; }
   .capRow { flex-direction: column; gap: 6px; }
+  .momentum { font-size: 14px; gap: 10px; }
 }
