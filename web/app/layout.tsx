@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Inter, JetBrains_Mono, Manrope } from "next/font/google";
+import { Archivo, Inter, JetBrains_Mono, Manrope, Space_Grotesk } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
@@ -15,6 +15,11 @@ const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "700"],
 //    IBM Plex both have squared terminals that read as technical documentation.
 //    The app and /classic still use Inter; only the landing page is softened.
 const soft = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-soft" });
+//  - Space Grotesk: the live counters. Archivo's figures are plain at display
+//    size (its 1 is a bare stem, its 4 and 7 have no character), so six-digit
+//    numbers read as filler. Space Grotesk has distinctive numerals and proper
+//    tabular figures, so the counters look like instrumentation, not marketing.
+const figures = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-figures" });
 
 // SEO: real title/description/OG so searching "ClutchCull" surfaces the site.
 // Use the real deployed domain, clutchcull.app does not resolve, which broke
@@ -56,7 +61,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable} ${soft.variable}`}>
+    <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable} ${soft.variable} ${figures.variable}`}>
       <body>
         {children}
         {/* Cookieless traffic analytics, visitors, referrers, devices.
