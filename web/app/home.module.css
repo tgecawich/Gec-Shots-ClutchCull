@@ -1,0 +1,255 @@
+/* Landing page styles.
+ *
+ * A CSS Module, not globals.css, on purpose: the preserved original at /classic
+ * still uses globals.css and shares generic class names (.shot, .card, .btn,
+ * .stats). Scoping these locally means the two designs physically cannot
+ * collide, so editing one can never silently break the other.
+ *
+ * Three accents, each with a fixed job, so the palette reads as a system:
+ *   violet  -> live system data
+ *   pink    -> human / editorial
+ *   orange  -> the engine's verdict (scores, keepers, primary action)
+ * Scores are ALWAYS orange. The colour a user learns to read as "the AI judged
+ * this" must never mean anything else.
+ */
+.page {
+  --bg: #000000;
+  --panel: #131317;
+  --panel-2: #1d1d24;
+  --text: #f4f4f5;
+  --muted: #9a9aa6;
+  --line: rgba(255, 255, 255, 0.09);
+  --violet: #8a4dff;
+  --pink: #ff4d8d;
+  --orange: #ff9231;
+  --ink: #1a0e02;
+  --grad: linear-gradient(135deg, #8a4dff 0%, #ff4d8d 55%, #ff9231 100%);
+  --r: 10px;
+  --r-sm: 6px;
+  --s1: 8px; --s2: 16px; --s3: 24px; --s4: 32px;
+  --s5: 48px; --s6: 64px; --s7: 96px;
+
+  background: var(--bg);
+  color: var(--text);
+  /* Manrope is a rounded humanist. Inter (used by /classic) and IBM Plex both
+     have squared terminals that read "engineering documentation", which is an
+     odd voice for a photography brand. */
+  font-family: var(--font-soft), system-ui, sans-serif;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+.page h1, .page h2, .page h3 {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
+  margin: 0;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 var(--s4); }
+
+/* ── nav ─────────────────────────────────────────────────────────────── */
+.nav { background: var(--bg); border-bottom: 2px solid transparent; border-image: var(--grad) 1; }
+.navIn { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+/* The only place the full gradient touches the brand mark. */
+.mark {
+  width: 30px; height: 30px; border-radius: 8px; background: var(--grad);
+  display: grid; place-items: center; color: #fff;
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 16px;
+}
+.brandName {
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 17px;
+  letter-spacing: -0.02em; color: var(--text); line-height: 1.05; display: block;
+}
+.brandSub { display: block; font-size: 9px; letter-spacing: 0.17em; color: var(--muted); font-weight: 600; }
+.navLinks { display: flex; gap: 26px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.navLinks a { color: var(--muted); text-decoration: none; transition: color 0.16s ease; }
+.navLinks a:hover { color: var(--text); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px;
+  letter-spacing: 0.04em; padding: 12px 22px; background: var(--grad); color: #fff;
+  border: 0; cursor: pointer; border-radius: var(--r-sm); text-decoration: none;
+  transition: filter 0.16s ease;
+}
+.btn:hover { filter: brightness(1.08); }
+.btnLg { font-size: 14px; padding: 15px 26px; }
+.btnGhost { background: none; color: var(--text); border: 1px solid rgba(255, 255, 255, 0.2); }
+.btnGhost:hover { background: rgba(255, 255, 255, 0.05); filter: none; }
+
+/* ── hero ────────────────────────────────────────────────────────────── */
+.hero { background: var(--bg); position: relative; overflow: hidden; }
+/* Two soft colour fields rather than glow shadows on boxes: they warm the page
+   without putting a halo on any single component. */
+.hero::before {
+  content: ""; position: absolute; left: -260px; top: -220px; width: 760px; height: 760px;
+  background: radial-gradient(circle, rgba(138, 77, 255, 0.22) 0%, transparent 62%); z-index: 0;
+}
+.hero::after {
+  content: ""; position: absolute; right: -200px; bottom: -320px; width: 720px; height: 720px;
+  background: radial-gradient(circle, rgba(255, 77, 141, 0.14) 0%, transparent 62%); z-index: 0;
+}
+.heroWrap { position: relative; z-index: 2; }
+.heroGrid {
+  display: grid; grid-template-columns: 1.3fr 0.9fr; gap: var(--s5);
+  align-items: center; padding: var(--s5) 0;
+}
+.stripes { position: absolute; top: 0; right: 48px; display: flex; gap: 9px; z-index: 3; }
+.stripes i { display: block; width: 15px; height: 58px; transform: skewX(-20deg); border-radius: 0 0 3px 3px; }
+.stripes i:nth-child(1) { background: var(--violet); }
+.stripes i:nth-child(2) { background: var(--pink); }
+.stripes i:nth-child(3) { background: var(--orange); }
+
+/* Solid pink, not gradient text: at 11px the violet end of the ramp sits near
+   3:1 on black and the opening words go unreadable. */
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 9px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--pink);
+}
+.eyebrow i { width: 6px; height: 6px; border-radius: 50%; background: var(--pink); flex: none; }
+.l1 { font-size: 46px; font-weight: 600; color: var(--text); display: block; }
+/* A 135deg 3-stop gradient never reaches orange across a block this wide: the
+   ramp runs off the corner before the last stop, leaving a purple-to-pink
+   headline with none of the brand's orange in it. Flatten the angle and pull
+   the stops in so orange lands on the final word. */
+.l2 {
+  font-size: 86px; font-weight: 800; display: block; margin-top: 4px; letter-spacing: -0.032em;
+  background: linear-gradient(96deg, #8a4dff 2%, #ff4d8d 40%, #ff9231 86%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sub { color: #b9b9c2; font-size: 16px; margin: var(--s3) 0 0; max-width: 46ch; }
+.cta { display: flex; gap: 12px; margin-top: var(--s4); flex-wrap: wrap; }
+.trust { margin-top: var(--s3); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+/* live counter card */
+.card { background: var(--panel); padding: var(--s3); position: relative; border-radius: var(--r); }
+.card::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: var(--grad); border-radius: var(--r) var(--r) 0 0;
+}
+.cardK { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--violet); }
+.cardBig {
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 34px;
+  color: var(--text); margin-top: 10px; letter-spacing: -0.03em; line-height: 1.1;
+}
+.cardCap { font-size: 13px; color: #b9b9c2; margin-top: 4px; }
+.cardLive {
+  display: flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 11px;
+  color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600;
+}
+.cardLive i { width: 6px; height: 6px; border-radius: 50%; background: var(--violet); display: block; }
+/* A cumulative total alone cannot tell a reader whether this is alive or was
+   abandoned two years ago. The rolling 30-day figure answers that in one line. */
+.mom { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.mom b { color: var(--pink); font-weight: 700; }
+
+/* Photos above the fold: this is a tool for photographs, so the hero has to
+   contain some. The best frames wear the same accent border the app uses for
+   keepers, which makes the hero the product demonstrating itself. */
+.heroShots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.hs { position: relative; aspect-ratio: 1/1; overflow: hidden; background: var(--panel-2); border-radius: var(--r); }
+.hs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hsScore {
+  position: absolute; right: 8px; bottom: 8px; background: var(--orange); color: var(--ink);
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 12px;
+  padding: 3px 8px; border-radius: var(--r-sm);
+}
+.keep { outline: 2px solid var(--orange); outline-offset: -2px; border-radius: var(--r); }
+.keep::after {
+  content: "KEEPER"; position: absolute; left: 8px; top: 8px; background: var(--orange);
+  color: var(--ink); font-size: 8px; font-weight: 800; letter-spacing: 0.12em;
+  padding: 3px 7px; border-radius: var(--r-sm);
+}
+
+/* ── ticker ──────────────────────────────────────────────────────────── */
+.ticker { background: var(--grad); color: #fff; padding: 11px 0; overflow: hidden; white-space: nowrap; }
+/* Content is duplicated in the markup so the loop wraps seamlessly instead of
+   scrolling into dead space. */
+.run { display: inline-block; animation: slide 38s linear infinite; }
+.run span { font-size: 12px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; padding-right: 18px; }
+.run i { color: rgba(255, 255, 255, 0.55); margin: 0 18px; font-style: normal; }
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .run { animation: none; } }
+
+/* ── sections ────────────────────────────────────────────────────────── */
+.sec { padding: var(--s7) 0; }
+.secAlt { background: var(--panel); }
+.lab { display: flex; align-items: center; gap: 12px; margin-bottom: var(--s4); }
+.lab span:first-child { width: 26px; height: 2px; background: var(--grad); flex: none; }
+.labT { font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text); }
+
+.shots { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.shot { position: relative; aspect-ratio: 4/5; overflow: hidden; background: var(--panel-2); border-radius: var(--r); }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sc {
+  position: absolute; right: 10px; bottom: 10px; background: var(--orange); color: var(--ink);
+  font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 13px;
+  padding: 4px 10px; border-radius: var(--r-sm);
+}
+.tg {
+  position: absolute; left: 10px; top: 10px; background: rgba(0, 0, 0, 0.72); color: #fff;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: var(--r-sm); backdrop-filter: blur(6px);
+}
+/* Showing the bottom of the ranking beside the top is the only falsifiable way
+   to demonstrate that the ranking works. Rejects are dimmed as the app dims them. */
+.rankHead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.rk { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; }
+.rkTop { color: var(--orange); }
+.rkLow { color: var(--muted); }
+.rkNote { font-size: 12px; color: var(--muted); }
+.dim img { opacity: 0.55; filter: saturate(0.7); }
+.scLow { background: var(--panel-2); color: var(--muted); }
+.capRow { display: flex; justify-content: space-between; gap: var(--s3); margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+/* one accent each, so the trio reads as a palette rather than a smear */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); margin-top: var(--s7); }
+.stat { padding-top: var(--s2); border-top: 2px solid; }
+.stat:nth-child(1) { border-color: var(--violet); }
+.stat:nth-child(2) { border-color: var(--pink); }
+.stat:nth-child(3) { border-color: var(--orange); }
+.statN { font-family: var(--font-display), sans-serif; font-weight: 800; font-size: 46px; color: var(--text); letter-spacing: -0.04em; line-height: 1.1; }
+.statL { font-size: 13px; color: var(--muted); margin-top: 6px; max-width: 26ch; }
+
+.proofGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); }
+.proofGrid h3 { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
+.proofGrid p { font-size: 14px; color: var(--muted); margin: 0; }
+.pnum { font-family: var(--font-display), sans-serif; font-size: 12px; font-weight: 800; letter-spacing: 0.1em; margin-bottom: 10px; }
+.proofGrid > div:nth-child(1) .pnum { color: var(--violet); }
+.proofGrid > div:nth-child(2) .pnum { color: var(--pink); }
+.proofGrid > div:nth-child(3) .pnum { color: var(--orange); }
+
+/* ── closing band ────────────────────────────────────────────────────── */
+.band { background: var(--panel); padding: var(--s7) 0; position: relative; overflow: hidden; border-top: 1px solid var(--line); }
+.band::before {
+  content: ""; position: absolute; right: -180px; top: -180px; width: 620px; height: 620px;
+  background: radial-gradient(circle, rgba(255, 77, 141, 0.16) 0%, transparent 62%);
+}
+.bandWrap { position: relative; z-index: 2; }
+.band h2 { font-size: 46px; font-weight: 800; letter-spacing: -0.028em; color: var(--text); }
+.band h2 em {
+  font-style: normal;
+  background: linear-gradient(96deg, #8a4dff 2%, #ff4d8d 40%, #ff9231 86%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.band p { color: #b9b9c2; margin: var(--s2) 0 0; max-width: 52ch; font-size: 15px; }
+
+.footer { background: var(--bg); color: var(--muted); padding: var(--s4) 0; font-size: 12px; border-top: 1px solid var(--line); }
+.footerIn { display: flex; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.footerIn a { color: var(--muted); text-decoration: none; border-bottom: 1px solid var(--line); }
+.footerIn a:hover { color: var(--text); }
+
+/* ── responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 980px) {
+  .heroGrid { grid-template-columns: 1fr; gap: var(--s4); }
+  .l1 { font-size: 36px; }
+  .l2 { font-size: 58px; }
+  .band h2 { font-size: 34px; }
+  .stats, .proofGrid { grid-template-columns: 1fr; gap: var(--s4); }
+  .sec { padding: var(--s6) 0; }
+  .navLinks { display: none; }
+}
+@media (max-width: 620px) {
+  .shots { grid-template-columns: 1fr 1fr; }
+  .l2 { font-size: 44px; }
+  .capRow { flex-direction: column; gap: 6px; }
+}

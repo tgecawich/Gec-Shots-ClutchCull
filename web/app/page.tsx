@@ -1,251 +1,112 @@
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "/app";
+import { getImpact, shots, lowShots, APP_URL, RECENT_WINDOW_DAYS } from "@/lib/impact";
+import s from "./home.module.css";
 
-const SHEET_CSV =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vQi3K-ggYir5zDj6mYXIMrWcG-fyTqWu6tQtQ2g97vFpzSZmKrJ0nnExHIBzA7zDCbvhabDdCG8EYSa/pub?gid=370944124&single=true&output=csv";
+// Shown only if the sheet fetch fails, so the page never renders an empty
+// dashboard. Deliberately vague rather than a stale hardcoded number: a wrong
+// figure is worse than no figure on a counter that claims to be live.
+const FALLBACK_LINE = "Built by a photographer, for photographers";
 
-// Photographers who used the original Streamlit version, before the Next.js
-// rebuild. Recorded here as a constant because the shared Google Sheet only kept
-// partial data for that period: Streamlit minted a NEW session_id on every visit
-// (and re-logged session_start on every rerun), so its ids can't be counted as
-// people. Sourced from the original app's own user count, not derived from the
-// sheet, anything after LEGACY_CUTOVER is counted live below.
-const LEGACY_PHOTOGRAPHERS = 270;
-const LEGACY_CUTOVER = "2026-07-01";
-// Rolling window for the momentum strip, so it stays current on its own.
-// 30 rather than 7: a week is noisy enough that a single quiet stretch or an
-// API outage dominates it, and the strip then reads as decline rather than as
-// normal variance. A month is the more honest summary of current activity.
-const RECENT_WINDOW_DAYS = 30;
-
-// Live Impact Dashboard, fetched server-side from the shared Google Sheet
-// (same data source as the original app), so it stays visible and current.
-async function getImpact() {
-  try {
-    const res = await fetch(SHEET_CSV, { next: { revalidate: 300 } });
-    if (!res.ok) return null;
-    const rows = (await res.text()).trim().split(/\r?\n/).map((r) => r.split(","));
-    const header = rows[0].map((h) => h.trim().toLowerCase().replace(/ /g, "_"));
-    const ci = (n: string) => header.indexOf(n);
-    const iT = ci("timestamp"), iE = ci("event_type"), iP = ci("photos_processed"),
-      iX = ci("exports"), iM = ci("minutes_saved"), iS = ci("session_id");
-
-    // Count UNIQUE people (distinct session_id), never raw session_start rows:
-    // the old Streamlit app re-ran its script on every interaction, so a single
-    // browser logged up to 314 session_starts (799 "sessions" from 20 ids in April).
-    const firstSeen = new Map<string, number>();
-    let photos = 0, exports = 0, minutes = 0;
-    let recentPhotos = 0;
-    const now = Date.now();
-    const windowStart = now - RECENT_WINDOW_DAYS * 86400_000;
-
-    for (const row of rows.slice(1)) {
-      const t = iT >= 0 ? Date.parse(row[iT]) : NaN;
-      const sid = iS >= 0 ? (row[iS] || "").trim() : "";
-      if (sid && !Number.isNaN(t)) {
-        const prev = firstSeen.get(sid);
-        if (prev === undefined || t < prev) firstSeen.set(sid, t);
-      } else if (sid && !firstSeen.has(sid)) {
-        firstSeen.set(sid, NaN);
-      }
-      const p = iP >= 0 ? parseFloat(row[iP]) || 0 : 0;
-      photos += p;
-      if (!Number.isNaN(t) && t >= windowStart) recentPhotos += p;
-      if (iX >= 0) exports += parseFloat(row[iX]) || 0;
-      if (iM >= 0) minutes += parseFloat(row[iM]) || 0;
-    }
-
-    // Only count ids first seen after the Streamlit -> Next.js cutover, then add
-    // the recorded legacy figure. Counting all ids AND adding the legacy total
-    // would double-count the Apr–Jun period.
-    const cutover = Date.parse(LEGACY_CUTOVER);
-    let livePeople = 0, recentPeople = 0;
-    for (const t of firstSeen.values()) {
-      if (Number.isNaN(t) || t >= cutover) livePeople++;
-      if (!Number.isNaN(t) && t >= windowStart) recentPeople++;
-    }
-
-    return {
-      people: LEGACY_PHOTOGRAPHERS + livePeople,
-      photos, exports, hours: minutes / 60,
-      recentPeople, recentPhotos,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Real frames from a real shoot, scored by the actual engine. A photography
-// tool whose landing page shows no photographs asks people to take its word.
-// These are the top six keepers from a 33 frame soccer shoot: the files were
-// downscaled to 1400px exactly as the browser does before upload, run through
-// cull(), and the badge and score below are whatever the engine returned. The
-// crops are centred on the person the engine detected, not on the frame.
-const shots = [
-  { src: "/shots/D91A7783.jpg", tag: "Sharp subject", score: 88, alt: "Soccer player jogging upfield under a burning sunset sky" },
-  { src: "/shots/D91A7300.jpg", tag: "Clean contrast", score: 87, alt: "Two teammates leaning together on the bench between shifts" },
-  { src: "/shots/D91A7770.jpg", tag: "Sharp subject", score: 82, alt: "Attacker and keeper converging on the ball at the near post" },
-  { src: "/shots/D91A7758.jpg", tag: "Sharp subject", score: 69, alt: "Player walking the touchline under stadium lights at dusk" },
-  { src: "/shots/D91A7763.jpg", tag: "Clear subject", score: 69, alt: "Midfielder waiting for a restart against a storm-blue sky" },
-  { src: "/shots/D91A7166.jpg", tag: "Rich detail", score: 67, alt: "Two players shoulder to shoulder chasing a loose ball" },
-];
-
-const features = [
+const proof = [
   {
-    title: "AI subject detection",
-    body: "Locks onto the player so a sharp background behind a blurry athlete never wins.",
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" />
-      </>
-    ),
+    n: "01",
+    title: "It scores the athlete",
+    body: "Most tools measure the whole frame, so a blurry player in front of a crisp scoreboard scores well. ClutchCull locates your subject first, then judges that.",
   },
   {
-    title: "Nothing is deleted",
-    body: "Removed a keeper? Rescue any shot from the bin in one tap. Your call is always final.",
-    icon: (
-      <>
-        <path d="M3 12a9 9 0 1 0 9-9" />
-        <path d="M3 4v5h5" />
-      </>
-    ),
+    n: "02",
+    title: "Nothing is ever deleted",
+    body: "Every rejected frame stays one tap from being rescued. The software ranks; the call is always yours.",
   },
   {
-    title: "Instagram canvas",
-    body: "Turn picks into ready-to-post 3:4, 4:5, or 1:1 canvas posts in a tap.",
-    icon: (
-      <>
-        <rect x="4" y="3" width="16" height="18" rx="2" />
-        <path d="M4 15l4-4 4 4 4-5 4 4" />
-      </>
-    ),
-  },
-  {
-    title: "Your photos stay private",
-    body: "Full-res originals never leave your device. Nothing is sold, shared, or used to train anything.",
-    icon: (
-      <>
-        <rect x="5" y="11" width="14" height="10" rx="2" />
-        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-      </>
-    ),
-  },
-  {
-    title: "Blazing fast uploads",
-    body: "Photos optimize in your browser and upload in parallel, up to 50× faster on big batches.",
-    icon: <path d="M13 2 3 14h7l-1 8 10-12h-7z" />,
-  },
-  {
-    title: "Transparent ranking",
-    body: "Every keeper shows why it was picked: sharpness, subject, exposure. No black box.",
-    icon: (
-      <>
-        <path d="M3 3v18h18" />
-        <path d="M7 14l4-4 3 3 5-6" />
-      </>
-    ),
+    n: "03",
+    title: "Reads RAW directly",
+    body: "It pulls the preview your camera already embedded, so a 40MB RAW never has to be uploaded or converted first.",
   },
 ];
 
-const steps = [
-  { n: "01", title: "Drop your shoot", body: "Upload a whole game. Hundreds of frames, straight from your browser." },
-  { n: "02", title: "AI ranks the keepers", body: "Blurry frames and duplicates out. Your sharpest, best-framed shots surfaced and scored." },
-  { n: "03", title: "Export & post", body: "Grab full-res keepers or one-tap Instagram canvas posts. You're done." },
-];
-
-const stats = [
-  { num: "428→35", lbl: "shots to keepers" },
-  { num: "0:19", lbl: "avg cull time" },
-  { num: "15,131", lbl: "photos processed" },
-  { num: "30.6", lbl: "hours saved" },
-];
+const TICKER = (
+  <span>
+    RAW FILES SUPPORTED <i>◆</i> CR3 · NEF · ARW · DNG <i>◆</i> LIGHTROOM XMP EXPORT <i>◆</i>{" "}
+    PHOTOS NEVER LEAVE YOUR DEVICE <i>◆</i> NO SIGN-UP <i>◆</i> FREE FOREVER <i>◆</i> BUILT ON THE SIDELINE <i>◆</i>{" "}
+  </span>
+);
 
 export default async function Home() {
   const impact = await getImpact();
-  const dash = impact
-    ? [
-        { num: impact.people.toLocaleString(), lbl: "Photographers" },
-        { num: Math.round(impact.photos).toLocaleString(), lbl: "Photos culled" },
-        { num: Math.round(impact.exports).toLocaleString(), lbl: "Exports" },
-        { num: impact.hours.toFixed(1), lbl: "Hours saved" },
-      ]
-    : stats;
+  const heroShots = shots.slice(0, 4);
+
   return (
-    <>
-      <nav>
-        <div className="wrap nav-in">
-          <div className="logo">
-            <span className="dot">C</span>Clutch<span className="grad-text">Cull</span>
+    <div className={s.page}>
+      <nav className={s.nav}>
+        <div className={`${s.wrap} ${s.navIn}`}>
+          <a className={s.brand} href="/">
+            <span className={s.mark}>C</span>
+            <span>
+              <span className={s.brandName}>ClutchCull</span>
+              <span className={s.brandSub}>BY GEC SHOTS</span>
+            </span>
+          </a>
+          <div className={s.navLinks}>
+            <a href="#proof">Features</a>
+            <a href="#shoot">How it works</a>
+            <a href={APP_URL}>Canvas</a>
+            <a href="#impact">Impact</a>
           </div>
-          <div className="nav-links">
-            <a href="#features">Features</a>
-            <a href="#how">How it works</a>
-            <a href="#">Canvas</a>
-          </div>
-          <a className="btn btn-primary" href={APP_URL}>Launch app</a>
+          <a className={s.btn} href={APP_URL}>Launch app →</a>
         </div>
       </nav>
 
-      <header className="hero">
-        <div className="wrap hero-in">
-          {/* Driven by real data so the claim can never drift ahead of the truth. */}
-          <div className="eyebrow">
-            <span className="pulse" />
-            {impact
-              ? `${Math.round(impact.photos).toLocaleString()} PHOTOS CULLED BY ${impact.people.toLocaleString()} PHOTOGRAPHERS`
-              : "BUILT BY A PHOTOGRAPHER, FOR PHOTOGRAPHERS"}
-          </div>
-          <h1 className="hero-title">
-            Shoot the moment. Skip the <span className="grad-text">culling.</span>
-          </h1>
-          <p className="hero-sub">
-            Drop a full shoot in: a game, a session, an event. ClutchCull&apos;s AI locks onto
-            your subject, cuts blurry frames and duplicates, then ranks your sharpest keepers
-            automatically.
-          </p>
-          <p className="hero-promise">
-            Minutes instead of hours, every single shoot. More time out taking photos and editing.
-          </p>
-          <div className="hero-cta">
-            <a className="btn btn-primary" href={APP_URL}>Cull my shoot free →</a>
-            <a className="btn btn-ghost" href="#how">See how it works</a>
-          </div>
-          <div className="hero-trust">
-            <span><span className="check">✓</span> 100% free</span>
-            <span><span className="check">✓</span> No sign-up</span>
-            <span><span className="check">✓</span> Photos stay private</span>
-          </div>
-
-          {/* Live proof, above the fold, visible the moment the page opens. */}
-          <div className="hero-impact" id="impact">
-            <div className="sec-tag"><span className="pulse" />Live impact, updating in real time</div>
-            <div className="stats" style={{ margin: "14px 0 0" }}>
-              {dash.map((s) => (
-                <div className="stat" key={s.lbl}>
-                  <div className="num">{s.num}</div>
-                  <div className="lbl">{s.lbl}</div>
-                </div>
-              ))}
+      <header className={s.hero}>
+        <div className={s.stripes}><i /><i /><i /></div>
+        <div className={`${s.wrap} ${s.heroWrap} ${s.heroGrid}`}>
+          <div>
+            <div className={s.eyebrow}><i />Free AI culling for sports photographers</div>
+            <h1 style={{ marginTop: 18 }}>
+              <span className={s.l1}>SHOOT THE MOMENT.</span>
+              <span className={s.l2}>SKIP THE CULLING.</span>
+            </h1>
+            <p className={s.sub}>
+              Drop a full shoot in. ClutchCull finds your subject, cuts blurry frames and
+              duplicate bursts, then ranks your sharpest keepers.
+            </p>
+            <div className={s.cta}>
+              <a className={`${s.btn} ${s.btnLg}`} href={APP_URL}>Cull my shoot free →</a>
+              <a className={`${s.btn} ${s.btnLg} ${s.btnGhost}`} href="#shoot">See how it works</a>
             </div>
-            {/* Rolling window, computed live, shows current momentum without
-                going stale the way a hardcoded launch stat would. */}
-            {impact && impact.recentPeople > 0 && (
-              <div className="impact-recent">
-                🔥 <b>{impact.recentPeople.toLocaleString()}</b> new photographers and{" "}
-                <b>{Math.round(impact.recentPhotos).toLocaleString()}</b> photos culled in the last{" "}
-                {RECENT_WINDOW_DAYS} days
-              </div>
-            )}
+            <div className={s.trust}>
+              Free forever &nbsp;·&nbsp; No sign-up &nbsp;·&nbsp; Photos stay on your device
+            </div>
           </div>
 
-          <div className="mock">
-            <div className="mock-bar"><i /><i /><i /><span className="url">clutchcull.app</span></div>
-            <div className="mock-body">
-              {shots.map((s, i) => (
-                <div className="shot" key={i}>
-                  <img src={s.src} alt={s.alt} loading={i < 3 ? "eager" : "lazy"} />
-                  <span className="tag">{s.tag}</span>
-                  <span className="score">{s.score}</span>
+          <div id="impact">
+            {/* Driven entirely by the live log, so the claim can never drift
+                ahead of what actually happened. */}
+            <div className={s.card}>
+              <div className={s.cardK}>Live impact</div>
+              {impact ? (
+                <>
+                  <div className={s.cardBig}>{Math.round(impact.photos).toLocaleString()}</div>
+                  <div className={s.cardCap}>
+                    photos culled for {impact.people.toLocaleString()} photographers
+                  </div>
+                  <div className={s.cardLive}><i />Updating in real time</div>
+                  {impact.recentPhotos > 0 && (
+                    <div className={s.mom}>
+                      <b>+{Math.round(impact.recentPhotos).toLocaleString()}</b> photos in the last{" "}
+                      {RECENT_WINDOW_DAYS} days
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className={s.cardCap} style={{ marginTop: 10 }}>{FALLBACK_LINE}</div>
+              )}
+            </div>
+
+            <div className={s.heroShots}>
+              {heroShots.map((p, i) => (
+                <div className={`${s.hs} ${i < 2 ? s.keep : ""}`} key={p.src}>
+                  <img src={p.src} alt={p.alt} loading={i < 2 ? "eager" : "lazy"} />
+                  <span className={s.hsScore}>{p.score}</span>
                 </div>
               ))}
             </div>
@@ -253,19 +114,80 @@ export default async function Home() {
         </div>
       </header>
 
-      <section className="section" id="features">
-        <div className="wrap">
-          <div className="sec-head">
-            <span className="sec-tag"><span className="pulse" />Why it&apos;s different</span>
-            <h2>It scores the athlete, not just the frame.</h2>
-            <p>Most tools measure whole-frame sharpness. ClutchCull finds your subject and judges the shot the way you would.</p>
+      <div className={s.ticker}>
+        <div className={s.run}>
+          {TICKER}
+          {/* duplicated so the marquee loops without a gap */}
+          {TICKER}
+        </div>
+      </div>
+
+      <section className={s.sec} id="shoot">
+        <div className={s.wrap}>
+          <div className={s.lab}><span /><span className={s.labT}>One 33-frame shoot, as the engine ranked it</span></div>
+
+          <div className={s.rankHead}>
+            <span className={`${s.rk} ${s.rkTop}`}>Ranked 1 – 3</span>
+            <span className={s.rkNote}>kept, sorted by score</span>
           </div>
-          <div className="feat-grid">
-            {features.map((f) => (
-              <div className="feat" key={f.title}>
-                <div className="ic">
-                  <svg viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">{f.icon}</svg>
-                </div>
+          <div className={s.shots}>
+            {shots.slice(0, 3).map((p) => (
+              <div className={s.shot} key={p.src}>
+                <img src={p.src} alt={p.alt} loading="lazy" />
+                <span className={s.tg}>{p.tag}</span>
+                <span className={s.sc}>{p.score}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className={s.rankHead} style={{ marginTop: 40 }}>
+            <span className={`${s.rk} ${s.rkLow}`}>Ranked 31 – 33</span>
+            <span className={s.rkNote}>same shoot, bottom of the list</span>
+          </div>
+          <div className={s.shots}>
+            {lowShots.map((p) => (
+              <div className={`${s.shot} ${s.dim}`} key={p.src}>
+                <img src={p.src} alt={p.alt} loading="lazy" />
+                <span className={s.tg}>{p.tag}</span>
+                <span className={`${s.sc} ${s.scLow}`}>{p.score}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className={s.capRow}>
+            <span>
+              Nothing here is cherry-picked: these are positions 1–3 and 31–33 of the same 33
+              frames. Small, backlit or static subjects sink on their own.
+            </span>
+            <span>EG Avengers v. La Salle</span>
+          </div>
+
+          {impact && (
+            <div className={s.stats}>
+              <div className={s.stat}>
+                <div className={s.statN}>{Math.round(impact.photos).toLocaleString()}</div>
+                <div className={s.statL}>photos culled since launch</div>
+              </div>
+              <div className={s.stat}>
+                <div className={s.statN}>{impact.people.toLocaleString()}</div>
+                <div className={s.statL}>photographers, no account required</div>
+              </div>
+              <div className={s.stat}>
+                <div className={s.statN}>{Math.round(impact.hours).toLocaleString()}</div>
+                <div className={s.statL}>hours handed back to shooters</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className={`${s.sec} ${s.secAlt}`} id="proof">
+        <div className={s.wrap}>
+          <div className={s.lab}><span /><span className={s.labT}>Why it beats a sharpness filter</span></div>
+          <div className={s.proofGrid}>
+            {proof.map((f) => (
+              <div key={f.n}>
+                <div className={s.pnum}>{f.n}</div>
                 <h3>{f.title}</h3>
                 <p>{f.body}</p>
               </div>
@@ -274,40 +196,31 @@ export default async function Home() {
         </div>
       </section>
 
-      <section className="section" id="how">
-        <div className="wrap">
-          <div className="sec-head">
-            <span className="sec-tag"><span className="pulse" />How it works</span>
-            <h2>Three steps. Done before you&apos;d finish your first coffee.</h2>
-          </div>
-          <div className="steps">
-            {steps.map((s) => (
-              <div className="step" key={s.n}>
-                <div className="n">{s.n}</div>
-                <h3>{s.title}</h3>
-                <p>{s.body}</p>
-              </div>
-            ))}
-          </div>
+      <section className={s.band}>
+        <div className={`${s.wrap} ${s.bandWrap}`}>
+          <h2>
+            CULL YOUR NEXT GAME.
+            <br />
+            <em>IN MINUTES, NOT HOURS.</em>
+          </h2>
+          <p>
+            Free, no sign-up, and your originals never leave your device. Built on the sideline
+            by a photographer who got tired of culling at 1am.
+          </p>
+          <a className={`${s.btn} ${s.btnLg}`} style={{ marginTop: 32 }} href={APP_URL}>
+            Launch ClutchCull →
+          </a>
         </div>
       </section>
 
-      <div className="wrap">
-        <section className="cta">
-          <div className="cta-in">
-            <h2>Cull your next game in seconds.</h2>
-            <p>Free. No sign-up. Built from the sideline by a student-athlete photographer.</p>
-            <a className="btn" href={APP_URL}>Launch ClutchCull →</a>
-          </div>
-        </section>
-      </div>
-
-      <footer className="wrap">
-        <div className="logo" style={{ fontSize: "1.1rem" }}>
-          <span className="dot" style={{ width: 24, height: 24, fontSize: "0.8rem" }}>C</span>ClutchCull
+      <footer className={s.footer}>
+        <div className={`${s.wrap} ${s.footerIn}`}>
+          <span>ClutchCull · Built by @gec.shots</span>
+          <span>
+            <a href="/classic">Original design</a> &nbsp;·&nbsp; © 2026
+          </span>
         </div>
-        <div>Built by @gec.shots · © 2026</div>
       </footer>
-    </>
+    </div>
   );
 }

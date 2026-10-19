@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Inter, JetBrains_Mono } from "next/font/google";
+import { Archivo, Inter, JetBrains_Mono, Manrope } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
@@ -11,6 +11,10 @@ import "./globals.css";
 const display = Archivo({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
 const ui = Inter({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-ui" });
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "700"], variable: "--font-mono" });
+//  - Manrope: UI text on the landing page. A rounded humanist, where Inter and
+//    IBM Plex both have squared terminals that read as technical documentation.
+//    The app and /classic still use Inter; only the landing page is softened.
+const soft = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-soft" });
 
 // SEO: real title/description/OG so searching "ClutchCull" surfaces the site.
 // Use the real deployed domain, clutchcull.app does not resolve, which broke
@@ -52,7 +56,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable}`}>
+    <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable} ${soft.variable}`}>
       <body>
         {children}
         {/* Cookieless traffic analytics, visitors, referrers, devices.
