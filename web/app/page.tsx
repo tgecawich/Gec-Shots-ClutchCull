@@ -60,7 +60,16 @@ export default async function Home() {
         <div className={s.stripes}><i /><i /><i /></div>
         <div className={`${s.wrap} ${s.heroWrap} ${s.heroGrid}`}>
           <div>
-            <div className={s.eyebrow}><i />Free AI culling for sports photographers</div>
+            {/* The live figure is the FIRST line of text on the page, which is
+                how the original design did it. On a phone the hero stacks and
+                the counters below sit ~245px under the fold, so without this
+                the proof is a scroll away for most of the audience. */}
+            <div className={s.eyebrow}>
+              <i />
+              {impact
+                ? `${Math.round(impact.photos).toLocaleString()} photos culled by ${impact.people.toLocaleString()} photographers`
+                : FALLBACK_LINE}
+            </div>
             <h1 style={{ marginTop: 18 }}>
               <span className={s.l1}>SHOOT THE MOMENT.</span>
               <span className={s.l2}>SKIP THE CULLING.</span>
@@ -78,78 +87,59 @@ export default async function Home() {
             </div>
           </div>
 
-          <div id="impact">
-            {/* Driven entirely by the live log, so the claim can never drift
-                ahead of what actually happened. */}
-            <div className={s.card}>
-              <div className={s.cardK}>Live impact</div>
-              {impact ? (
-                <>
-                  <div className={s.cardBig}>{Math.round(impact.photos).toLocaleString()}</div>
-                  <div className={s.cardCap}>
-                    photos culled for {impact.people.toLocaleString()} photographers
-                  </div>
-                  {/* Momentum deliberately lives in the impact band below and
-                      not here too: repeating the same figure twice inside one
-                      scroll reads as padding rather than emphasis. */}
-                  <div className={s.cardLive}><i />Updating in real time</div>
-                </>
-              ) : (
-                <div className={s.cardCap} style={{ marginTop: 10 }}>{FALLBACK_LINE}</div>
-              )}
-            </div>
-
-            <div className={s.heroShots}>
-              {heroShots.map((p, i) => (
-                <div className={`${s.hs} ${i < 2 ? s.keep : ""}`} key={p.src}>
-                  <img src={p.src} alt={p.alt} loading={i < 2 ? "eager" : "lazy"} />
-                  <span className={s.hsScore}>{p.score}</span>
-                </div>
-              ))}
-            </div>
+          <div className={s.heroShots}>
+            {heroShots.map((p, i) => (
+              <div className={`${s.hs} ${i < 2 ? s.keep : ""}`} key={p.src}>
+                <img src={p.src} alt={p.alt} loading={i < 2 ? "eager" : "lazy"} />
+                <span className={s.hsScore}>{p.score}</span>
+              </div>
+            ))}
           </div>
         </div>
-      </header>
 
-      {/* Impact gets a full-width band of its own, directly under the fold.
-          Every figure is summed from the live usage log, so none of it can
-          drift ahead of what actually happened. */}
-      {impact && (
-        <section className={s.impact}>
-          <div className={`${s.wrap} ${s.impactIn}`}>
-            <div className={s.impactLab}><span className={s.pulse} />Live impact · updating in real time</div>
-            <div className={s.bigStats}>
-              <div className={s.bigStat}>
-                <div className={s.bigN}>{Math.round(impact.photos).toLocaleString()}</div>
-                <div className={s.bigL}>Photos culled</div>
+        {/* Impact sits INSIDE the hero, not in a section below it. At the fold
+            is not the same as on screen: on a 1366x768 laptop the browser
+            chrome leaves roughly 650px, and anything below that is a scroll the
+            visitor may never make. Every figure is summed from the live log. */}
+        <div className={`${s.wrap} ${s.heroWrap} ${s.impactIn}`} id="impact">
+          <div className={s.impactLab}><span className={s.pulse} />Live impact · updating in real time</div>
+          {impact ? (
+            <>
+              <div className={s.bigStats}>
+                <div className={s.bigStat}>
+                  <div className={s.bigN}>{Math.round(impact.photos).toLocaleString()}</div>
+                  <div className={s.bigL}>Photos culled</div>
+                </div>
+                <div className={s.bigStat}>
+                  <div className={s.bigN}>{impact.people.toLocaleString()}</div>
+                  <div className={s.bigL}>Photographers</div>
+                </div>
+                <div className={s.bigStat}>
+                  <div className={s.bigN}>{Math.round(impact.exports).toLocaleString()}</div>
+                  <div className={s.bigL}>Exports</div>
+                </div>
+                <div className={s.bigStat}>
+                  <div className={s.bigN}>{Math.round(impact.hours).toLocaleString()}</div>
+                  <div className={s.bigL}>Hours saved</div>
+                </div>
               </div>
-              <div className={s.bigStat}>
-                <div className={s.bigN}>{impact.people.toLocaleString()}</div>
-                <div className={s.bigL}>Photographers</div>
-              </div>
-              <div className={s.bigStat}>
-                <div className={s.bigN}>{Math.round(impact.exports).toLocaleString()}</div>
-                <div className={s.bigL}>Exports</div>
-              </div>
-              <div className={s.bigStat}>
-                <div className={s.bigN}>{Math.round(impact.hours).toLocaleString()}</div>
-                <div className={s.bigL}>Hours saved</div>
-              </div>
-            </div>
-            {impact.recentPhotos > 0 && (
-              <div className={s.momentum}>
-                <span className={s.momTag}>Last {RECENT_WINDOW_DAYS} days</span>
-                <span>
-                  <b>{Math.round(impact.recentPhotos).toLocaleString()}</b> photos culled
-                  {impact.recentPeople > 0 && (
-                    <> and <b>{impact.recentPeople.toLocaleString()}</b> new photographers</>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
-        </section>
-      )}
+              {impact.recentPhotos > 0 && (
+                <div className={s.momentum}>
+                  <span className={s.momTag}>Last {RECENT_WINDOW_DAYS} days</span>
+                  <span>
+                    <b>{Math.round(impact.recentPhotos).toLocaleString()}</b> photos culled
+                    {impact.recentPeople > 0 && (
+                      <> and <b>{impact.recentPeople.toLocaleString()}</b> new photographers</>
+                    )}
+                  </span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className={s.bigL} style={{ marginTop: 0 }}>{FALLBACK_LINE}</div>
+          )}
+        </div>
+      </header>
 
       <div className={s.ticker}>
         <div className={s.run}>
