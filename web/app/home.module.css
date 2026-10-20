@@ -157,8 +157,25 @@
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.8); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
 
-.bigStats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s5); padding-top: var(--s3); border-top: 2px solid transparent; border-image: var(--grad) 1; }
-.bigStat { min-width: 0; }
+/* Boxed, like the original design's stat cards. Four bare numbers in a row
+   read as a caption; the same numbers in bordered cards read as a dashboard,
+   which is what a visitor is being asked to believe. The continuous gradient
+   rule is dropped here: a single stroke above four separate boxes looks
+   disconnected from them, so the emphasis moves onto the cards themselves. */
+.bigStats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s2); }
+.bigStat {
+  min-width: 0; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r); padding: var(--s3) var(--s3) var(--s3);
+  position: relative; overflow: hidden;
+}
+/* The two figures that carry the story get a gradient top edge and an accent
+   wash, so the pair reads first without the other two being demoted to noise. */
+.lead { border-color: rgba(255, 146, 49, 0.3); background: rgba(255, 146, 49, 0.05); }
+.lead::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(96deg, #8a4dff 2%, #ff4d8d 45%, #ff9231 95%);
+}
+.lead .bigN { color: #fff; }
 .bigN {
   font-family: var(--font-figures), sans-serif; font-weight: 700;
   font-size: clamp(28px, 3.1vw, 42px); line-height: 1; letter-spacing: -0.03em;
@@ -268,8 +285,10 @@
   .hs { aspect-ratio: 3/2; }
   .impactIn { padding: var(--s1) 0 var(--s5); }
   .impactLab { margin-bottom: 12px; }
+  .bigStats { gap: 12px; }
+  .bigStat { padding: var(--s2); }
   .bigN { font-size: clamp(25px, 2.5vw, 34px); }
-  .bigL { font-size: 10px; margin-top: 9px; }
+  .bigL { font-size: 10px; margin-top: 7px; }
   .momentum { margin-top: var(--s3); padding: 12px var(--s3); font-size: 14px; }
 }
 @media (max-width: 980px) {
@@ -278,7 +297,7 @@
   .l2 { font-size: 58px; }
   .band h2 { font-size: 34px; }
   .proofGrid { grid-template-columns: 1fr; gap: var(--s4); }
-  .bigStats { grid-template-columns: 1fr 1fr; gap: var(--s4) var(--s3); }
+  .bigStats { grid-template-columns: 1fr 1fr; gap: 12px; }
   .sec { padding: var(--s6) 0; }
   .navLinks { display: none; }
   /* Once the hero stacks, the eyebrow runs the full width and collides with
@@ -300,7 +319,8 @@
   .hs { aspect-ratio: 1/1; }
   .keep::after { content: none; }
   .hsScore { right: 4px; bottom: 4px; font-size: 10px; padding: 2px 5px; }
-  .bigStats { gap: var(--s3) var(--s3); padding-top: var(--s2); }
+  .bigStats { gap: 10px; }
+  .bigStat { padding: 14px var(--s2); }
   .bigN { font-size: 27px; }
   .bigL { font-size: 9px; letter-spacing: 0.1em; margin-top: 7px; }
   /* Last 30px of slack, so the first row of counters clears a 740px phone

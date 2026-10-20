@@ -106,11 +106,13 @@ export default async function Home() {
           {impact ? (
             <>
               <div className={s.bigStats}>
-                <div className={s.bigStat}>
+                {/* The two figures that carry the story are highlighted; the
+                    other two are supporting detail, not competition. */}
+                <div className={`${s.bigStat} ${s.lead}`}>
                   <div className={s.bigN}>{Math.round(impact.photos).toLocaleString()}</div>
                   <div className={s.bigL}>Photos culled</div>
                 </div>
-                <div className={s.bigStat}>
+                <div className={`${s.bigStat} ${s.lead}`}>
                   <div className={s.bigN}>{impact.people.toLocaleString()}</div>
                   <div className={s.bigL}>Photographers</div>
                 </div>
