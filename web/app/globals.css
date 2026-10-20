@@ -401,3 +401,96 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .app-note { margin: 10px 0 0; padding: 14px 16px; border-radius: var(--radius);
   background: rgba(120, 220, 150, 0.09); border: 1px solid rgba(120, 220, 150, 0.32);
   color: var(--text); font-size: 0.9rem; line-height: 1.55; max-width: 78ch; }
+
+/* ===================================================================
+   App refresh: brings the cull tool into the landing page's language.
+   Appended as overrides so the original rules stay readable above and
+   the diff shows exactly what the refresh changes.
+
+   Rules of the system, same as the landing page:
+     orange  = the engine's verdict (scores, keeper state, primary action)
+     violet  = system / safety
+     numbers = Space Grotesk, tabular, so columns never jitter
+   =================================================================== */
+
+/* Inline icons replace emoji everywhere. Stroked paths inherit currentColor,
+   so an icon goes orange with its tile instead of staying a fixed picture. */
+.ic { flex: none; vertical-align: -0.18em; }
+
+/* ---- mode tabs: segmented control, not two gradient pills ---- */
+.mode-tabs { padding: 3px; gap: 3px; border-radius: 10px; background: var(--panel); }
+.mode-tabs button { display: inline-flex; align-items: center; gap: 8px; font-size: 0.86rem;
+  padding: 9px 16px; border-radius: 6px; }
+.mode-tabs button.active { background: #26262f; color: var(--text); box-shadow: none; }
+.mode-tabs button.active .ic { color: var(--accent); }
+
+/* ---- dropzone ---- */
+.dropzone { border: 1px dashed rgba(255,255,255,0.18); border-radius: 10px; background: var(--panel); }
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: rgba(255,146,49,0.05); }
+/* flex-centred: the icon is an inline SVG, and the parent's text-align
+   does not centre a replaced element reliably across browsers. */
+.dropzone .dz-icon { color: var(--muted); margin-bottom: 14px; line-height: 0;
+  display: flex; justify-content: center; }
+.dz-title { font-size: 1.25rem; letter-spacing: -0.02em; }
+.dz-sub { font-size: 0.88rem; }
+/* RAW was the most requested feature: name every format so no one guesses. */
+.fmt-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 20px; }
+.fmt-chips span { font-family: var(--font-figures), monospace; font-size: 0.62rem; font-weight: 600;
+  letter-spacing: 0.06em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; }
+
+/* ---- presets: hairline tiles, no lift ---- */
+.preset { border-radius: 10px; transition: background .16s ease, border-color .16s ease; }
+.preset:hover { transform: none; background: #1d1d24; border-color: rgba(255,255,255,0.18); }
+.preset.on { border-color: var(--accent); background: rgba(255,146,49,0.06); }
+.preset-icon { color: var(--muted); line-height: 0; display: block; margin-bottom: 8px; }
+.preset.on .preset-icon { color: var(--accent); }
+
+/* ---- results toolbar: the app's spine, always reachable ---- */
+.res-bar { background: rgba(0,0,0,0.86); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border); border-radius: 0; padding: 18px 0; margin-bottom: 4px; }
+.res-title { font-family: var(--font-figures), sans-serif; font-weight: 700; font-size: 1.5rem;
+  letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.res-sub { font-size: 0.86rem; }
+
+/* ---- view tabs ---- */
+.views button.on { border-bottom-color: var(--accent); }
+.views button b { font-family: var(--font-figures), sans-serif; font-weight: 700; font-size: 0.72rem;
+  background: #1d1d24; color: var(--muted); padding: 2px 7px; border-radius: 999px; margin-left: 7px;
+  opacity: 1; font-variant-numeric: tabular-nums; }
+.views button.on b { background: var(--accent); color: #1a0e02; }
+
+/* ---- keeper cards ---- */
+.keeper { border-radius: 10px; transition: border-color .16s ease, box-shadow .16s ease; }
+.keeper.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+/* Selection has to read as a control, not a decorative dot: hollow ring when
+   off, solid accent with a check when on. */
+.keeper .tick { width: 24px; height: 24px; background: rgba(0,0,0,0.55);
+  border: 1.5px solid rgba(255,255,255,0.45); backdrop-filter: blur(6px);
+  display: grid; place-items: center; color: transparent; }
+.keeper.sel .tick { background: var(--accent); border-color: var(--accent); color: #1a0e02; }
+.keeper .soft-flag { display: inline-flex; align-items: center; gap: 5px; border-radius: 6px;
+  background: rgba(0,0,0,0.72); backdrop-filter: blur(6px); color: #ffc15a; padding: 4px 8px; }
+.keeper-meta { gap: 10px; padding: 11px 12px; }
+.keeper-meta .rank { font-family: var(--font-figures), sans-serif; font-weight: 700; font-size: 0.78rem; }
+.keeper-meta .badge { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
+/* One colour, one meaning: a score is always the engine's verdict, so it is
+   always orange. It used to be gradient-clipped text, which read as brand
+   decoration rather than data. */
+.keeper-meta .score { font-family: var(--font-figures), sans-serif; font-weight: 700; font-size: 0.86rem;
+  background: var(--accent); -webkit-background-clip: border-box; background-clip: border-box;
+  color: #1a0e02; padding: 3px 9px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.keeper.removed img { opacity: 0.42; filter: saturate(0.6); }
+.keeper.removed .score { background: #26262f; color: var(--muted); }
+.dupe-badge { display: inline-flex; align-items: center; gap: 5px; background: var(--accent); color: #1a0e02; border-radius: 6px; }
+
+/* ---- safety banner: violet, matching "system" elsewhere ---- */
+.trust-banner { display: flex; align-items: center; gap: 10px;
+  border-color: rgba(138,77,255,0.25); background: rgba(138,77,255,0.07); color: #c8c8d2; border-radius: 10px; }
+.trust-banner .ic { color: var(--purple); }
+.trust-banner b { color: var(--text); }
+
+/* ---- misc numerals ---- */
+.ready-count, .goal-value { font-family: var(--font-figures), sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.more-menu button { display: flex; align-items: center; gap: 9px; }
+.app-back { display: inline-flex; align-items: center; gap: 6px; }
+.linkish { display: inline-flex; align-items: center; gap: 5px; }

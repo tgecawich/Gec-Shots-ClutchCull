@@ -10,22 +10,52 @@ import { makeCullReport } from "@/lib/report";
 import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
+
+// Inline SVG rather than emoji. Emoji render as a different picture on every
+// OS (and as a flat glyph on some Androids), can't inherit weight or colour,
+// and are the clearest "not a real product" tell in the whole interface.
+// These are stroked paths that take currentColor, so a selected preset's icon
+// turns accent-orange with the rest of the tile.
+const ICON: Record<string, React.ReactNode> = {
+  sports: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /><circle cx="12" cy="12" r="4.5" /></>,
+  portrait: <><circle cx="12" cy="8.5" r="4" /><path d="M4.5 20a7.5 7.5 0 0 1 15 0" /></>,
+  event: <><circle cx="8" cy="9" r="3" /><circle cx="16" cy="9" r="3" /><path d="M2.5 19a5.5 5.5 0 0 1 11 0M10.5 19a5.5 5.5 0 0 1 11 0" /></>,
+  balanced: <><path d="M12 4v16M5 9l7-5 7 5" /><path d="M5 9l-2 6h4zM19 9l-2 6h4z" /></>,
+  cull: <><path d="M3 7h18M3 12h18M3 17h18" /><circle cx="7" cy="7" r="1.6" /><circle cx="14" cy="12" r="1.6" /><circle cx="10" cy="17" r="1.6" /></>,
+  canvas: <><rect x="4" y="2.5" width="16" height="19" rx="2.5" /><path d="M10 5.5h4" /></>,
+  upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4" /></>,
+  download: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M4 20h16" /></>,
+  check: <path d="M4 12l5 5L20 7" />,
+  sliders: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
+  warn: <><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></>,
+  star: <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z" />,
+  lock: <><rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></>,
+  back: <path d="M19 12H5M11 18l-6-6 6-6" />,
+};
+
+// Not exported: a Next.js page module may only export the default component
+// and a fixed set of framework names, so exporting this fails the build.
+function Icon({ n, size = 16 }: { n: string; size?: number }) {
+  return (
+    <svg className="ic" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true"
+      fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+      {ICON[n]}
+    </svg>
+  );
+}
+
 // Visual presets, plain labels the photographer recognises, mapped to the
 // engine's internal preset names.
 const PRESET_META: { value: string; label: string; icon: string; hint: string }[] = [
-  { value: "Sports Action", label: "Sports", icon: "🏟️", hint: "Fast action, helmets, motion" },
-  { value: "Portraits", label: "Portrait", icon: "🙂", hint: "Faces and expressions first" },
-  { value: "Events", label: "Event", icon: "🎉", hint: "Mixed crowd and candids" },
-  { value: "Balanced", label: "Balanced", icon: "⚖️", hint: "Good all-round default" },
+  { value: "Sports Action", label: "Sports", icon: "sports", hint: "Fast action, helmets, motion" },
+  { value: "Portraits", label: "Portrait", icon: "portrait", hint: "Faces and expressions first" },
+  { value: "Events", label: "Event", icon: "event", hint: "Mixed crowd and candids" },
+  { value: "Balanced", label: "Balanced", icon: "balanced", hint: "Good all-round default" },
 ];
 // Measured on the live Starter instance, then trimmed to match real-world
 // timings reported on 500-photo shoots (the first estimate ran ~1 min high).
 const SEC_PER_PHOTO_LO = 0.36;
 const SEC_PER_PHOTO_HI = 0.7;
-const BADGE_ICON: Record<string, string> = {
-  "Sharp subject": "⚡", "Clear subject": "🎯", "Rich detail": "🔍",
-  "Clean contrast": "🌗", "Well-exposed": "☀️", "Strong pick": "✅",
-};
 // Real deployed domain. The previous value (gec-shots-clutchcull, no hyphen)
 // was dead, every mobile visitor was told to open a 404.
 const APP_LINK = process.env.NEXT_PUBLIC_SITE_URL || "https://gec-shots-clutch-cull.vercel.app";
@@ -337,7 +367,7 @@ export default function AppPage() {
     <div className="app-wrap">
       {nudge && (
         <div className="nudge">
-          <span>💻 <b>ClutchCull is strongest on a computer.</b> On a phone? Open <code>{APP_LINK}</code> on a laptop for big batches.</span>
+          <span><b>ClutchCull is strongest on a computer.</b> On a phone? Open <code>{APP_LINK}</code> on a laptop for big batches.</span>
           <button onClick={() => { localStorage.setItem("cc_nudged", "1"); setNudge(false); }}>Got it</button>
         </div>
       )}
@@ -346,13 +376,13 @@ export default function AppPage() {
           <span className="dot" style={{ width: 26, height: 26, fontSize: "0.85rem" }}>C</span>
           Clutch<span className="grad-text">Cull</span>
         </a>
-        <a href="/" className="app-back">← Home</a>
+        <a href="/" className="app-back"><Icon n="back" />Home</a>
       </header>
 
       <div className="wrap">
         <div className="mode-tabs">
-          <button className={mode === "cull" ? "active" : ""} onClick={() => setMode("cull")}>🏟️ Cull photos</button>
-          <button className={mode === "canvas" ? "active" : ""} onClick={() => setMode("canvas")}>📱 Instagram canvas</button>
+          <button className={mode === "cull" ? "active" : ""} onClick={() => setMode("cull")}><Icon n="cull" />Cull photos</button>
+          <button className={mode === "canvas" ? "active" : ""} onClick={() => setMode("canvas")}><Icon n="canvas" />Instagram canvas</button>
         </div>
       </div>
 
@@ -373,10 +403,16 @@ export default function AppPage() {
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
                       onDrop={(e) => { e.preventDefault(); setDragOver(false); ingest(e.dataTransfer.files, false); }}>
                       <input ref={inputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, false)} />
-                      <div className="dz-icon">📷</div>
+                      <div className="dz-icon"><Icon n="upload" size={30} /></div>
                       <div className="dz-title">Drop photos or a folder here</div>
-                      <div className="dz-sub">JPEG, PNG, WebP and RAW (CR2, CR3, NEF, ARW, DNG…) · Originals stay on your device</div>
+                      <div className="dz-sub">Originals never leave your device</div>
                       <span className="btn btn-primary dz-btn">Choose photos</span>
+                      {/* RAW support was the most-asked-for feature; spell the
+                          formats out so nobody has to guess whether their
+                          camera is covered. */}
+                      <div className="fmt-chips">
+                        {["JPEG","PNG","WEBP","CR2","CR3","NEF","ARW","DNG"].map((f) => <span key={f}>{f}</span>)}
+                      </div>
                     </div>
                   ) : (
                     /* Once photos are in, the uploader becomes a confidence summary. */
@@ -415,7 +451,7 @@ export default function AppPage() {
                   <div className="preset-grid">
                     {PRESET_META.map((p) => (
                       <button key={p.value} className={`preset${settings.preset === p.value ? " on" : ""}`} onClick={() => set("preset", p.value)}>
-                        <span className="preset-icon">{p.icon}</span>
+                        <span className="preset-icon"><Icon n={p.icon} size={19} /></span>
                         <span className="preset-label">{p.label}</span>
                         <span className="preset-hint">{p.hint}</span>
                       </button>
@@ -461,7 +497,7 @@ export default function AppPage() {
                   )}
                 </section>
 
-                <div className="trust-banner">🔒 <b>Your photos are safe.</b> Full-res originals stay on your device. Nothing is sold, shared, or used to train anything.</div>
+                <div className="trust-banner"><Icon n="lock" /><b>Your photos are safe.</b> Full-res originals stay on your device. Nothing is sold, shared, or used to train anything.</div>
               </>
             )}
 
@@ -488,11 +524,11 @@ export default function AppPage() {
                       <span className="dl-note">Your original full-quality photos, keepers only, untouched.</span>
                     </div>
                     <div className="more-wrap">
-                      <button className="btn btn-ghost" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>More export options ▾</button>
+                      <button className="btn btn-ghost" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}><Icon n="download" />More export options</button>
                       {moreOpen && (
                         <div className="more-menu" onMouseLeave={() => setMoreOpen(false)}>
                           <button disabled={!selected.size || !!busy} onClick={() => { setMoreOpen(false); exportKeepers(); }}>Download full-resolution ZIP</button>
-                          <button disabled={!selected.size || !!busy} title="Tiny .xmp files that make your keepers 5 stars in Lightroom, Bridge or Capture One" onClick={() => { setMoreOpen(false); exportXmp(); }}>⭐ Lightroom star ratings (.xmp)</button>
+                          <button disabled={!selected.size || !!busy} title="Tiny .xmp files that make your keepers 5 stars in Lightroom, Bridge or Capture One" onClick={() => { setMoreOpen(false); exportXmp(); }}><Icon n="star" size={14} />Lightroom star ratings (.xmp)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportList(); }}>Export filenames (.txt)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportCSV(); }}>Export scores (.csv)</button>
                           <button disabled={!!busy} onClick={() => { setMoreOpen(false); buildReport(); }}>Create cull report</button>
@@ -513,7 +549,7 @@ export default function AppPage() {
                     <div className="preset-grid sm">
                       {PRESET_META.map((p) => (
                         <button key={p.value} className={`preset${settings.preset === p.value ? " on" : ""}`} onClick={() => set("preset", p.value)}>
-                          <span className="preset-icon">{p.icon}</span><span className="preset-label">{p.label}</span>
+                          <span className="preset-icon"><Icon n={p.icon} size={19} /></span><span className="preset-label">{p.label}</span>
                         </button>
                       ))}
                     </div>
@@ -547,9 +583,9 @@ export default function AppPage() {
                     {results.keepers.slice(0, limit).map((k, i) => (
                       <button className={`keeper${selected.has(k.filename) ? " sel" : ""}${k.soft ? " soft" : ""}`} key={k.filename} onClick={() => toggleSel(k.filename)}>
                         {thumbs[k.filename] ? <img src={thumbs[k.filename]} alt={k.filename} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
-                        <span className="tick">{selected.has(k.filename) ? "✓" : ""}</span>
-                        {k.soft && <span className="soft-flag" title="Subject looks soft. Double-check before keeping.">⚠ Soft</span>}
-                        <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{BADGE_ICON[k.badge] || "✅"} {k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
+                        <span className="tick">{selected.has(k.filename) && <Icon n="check" size={13} />}</span>
+                        {k.soft && <span className="soft-flag" title="Subject looks soft. Double-check before keeping."><Icon n="warn" size={11} />Soft</span>}
+                        <div className="keeper-meta"><span className="rank">#{i + 1}</span><span className="badge">{k.badge}</span><span className="score">{Math.round(k.score)}</span></div>
                       </button>
                     ))}
                   </div>
@@ -565,7 +601,7 @@ export default function AppPage() {
                     <div className="keeper-grid">{results.rejected.slice(0, limit).map((name) => (
                       <button className={`keeper removed${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => toggleSel(name)}>
                         {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
-                        <span className="tick">{selected.has(name) ? "✓" : ""}</span>
+                        <span className="tick">{selected.has(name) && <Icon n="check" size={13} />}</span>
                         <div className="keeper-meta"><span className="badge">{selected.has(name) ? "Rescued" : "Lower-ranked"}</span></div>
                       </button>))}
                     </div>
@@ -591,7 +627,7 @@ export default function AppPage() {
                             <div className="dupe-group">{group.map((name) => (
                               <button className={`dupe-frame${selected.has(name) ? " sel" : ""}`} key={name} onClick={() => chooseFrame(group, name)}>
                                 {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
-                                {selected.has(name) && <span className="dupe-badge">✓ Keeping</span>}
+                                {selected.has(name) && <span className="dupe-badge"><Icon n="check" size={11} />Keeping</span>}
                               </button>))}
                             </div>
                           </div>);
@@ -606,8 +642,8 @@ export default function AppPage() {
                     return (
                       <button className={`keeper${selected.has(name) ? " sel" : ""}${k ? "" : " removed"}`} key={name} onClick={() => toggleSel(name)}>
                         {thumbs[name] ? <img src={thumbs[name]} alt={name} loading="lazy" decoding="async" /> : <div className="keeper-ph" />}
-                        <span className="tick">{selected.has(name) ? "✓" : ""}</span>
-                        <div className="keeper-meta"><span className="badge">{k ? `${BADGE_ICON[k.badge] || "✅"} ${k.badge}` : "Lower-ranked"}</span>{k && <span className="score">{Math.round(k.score)}</span>}</div>
+                        <span className="tick">{selected.has(name) && <Icon n="check" size={13} />}</span>
+                        <div className="keeper-meta"><span className="badge">{k ? k.badge : "Lower-ranked"}</span>{k && <span className="score">{Math.round(k.score)}</span>}</div>
                       </button>);
                   })}
                   </div>
@@ -621,12 +657,12 @@ export default function AppPage() {
                 {report && (
                   <div className="report-out">
                     <img src={report} alt="Cull report" />
-                    <a className="btn btn-primary" href={report} download="clutchcull_report.jpg" onClick={logExport}>⬇ Download this card</a>
+                    <a className="btn btn-primary" href={report} download="clutchcull_report.jpg" onClick={logExport}><Icon n="download" />Download this card</a>
                   </div>
                 )}
 
                 <details className="rank-table">
-                  <summary>📊 See the scores behind these picks</summary>
+                  <summary>See the scores behind these picks</summary>
                   <div className="rank-scroll"><table>
                     <thead><tr><th>#</th><th>File</th><th>Why</th><th>Score</th><th>Subject</th><th>Faces</th><th>Detail</th><th>Contrast</th><th>Exposure</th></tr></thead>
                     <tbody>{results.keepers.map((k, i) => (
@@ -640,7 +676,7 @@ export default function AppPage() {
                 {!emailSaved ? (
                   <div className="email-capture">
                     <div className="ec-head">
-                      <b>📬 Want new ClutchCull features first?</b>
+                      <b>Want new ClutchCull features first?</b>
                       <span>
                         Drop your email and I&apos;ll send you new tools as they launch, plus
                         sports photography tips from shooting sidelines every week. Built by
@@ -657,7 +693,7 @@ export default function AppPage() {
                   </div>
                 ) : (
                   <div className="email-capture done">
-                    <b>🙌 You&apos;re on the list.</b>
+                    <b>You&apos;re on the list.</b>
                     <span> Thanks for supporting a student-built tool. I&apos;ll only email when there&apos;s something genuinely useful.</span>
                   </div>
                 )}
@@ -676,7 +712,7 @@ export default function AppPage() {
                   onDragOver={(e) => { e.preventDefault(); setDragOverC(true); }} onDragLeave={() => setDragOverC(false)}
                   onDrop={(e) => { e.preventDefault(); setDragOverC(false); ingest(e.dataTransfer.files, true); }}>
                   <input ref={canvasInputRef} type="file" accept={`.jpg,.jpeg,.png,.webp,${RAW_ACCEPT}`} multiple hidden onChange={(e) => ingest(e.target.files, true)} />
-                  <div className="dz-icon">📱</div>
+                  <div className="dz-icon"><Icon n="canvas" size={30} /></div>
                   <div className="dz-title">Drop photos or a folder here</div>
                   <div className="dz-sub">JPEG, PNG and WebP · Or come from Cull to use your keepers</div>
                   <span className="btn btn-primary dz-btn">Choose photos</span>
@@ -731,7 +767,7 @@ export default function AppPage() {
                   </div>
                   <div className="res-act">
                     <button className="btn btn-primary" disabled={!!busy} onClick={downloadCanvases}>Download {canvases.length} post{canvases.length > 1 ? "s" : ""}</button>
-                    <button className="linkish" onClick={() => setMode("cull")}>← Back to cull</button>
+                    <button className="linkish" onClick={() => setMode("cull")}><Icon n="back" size={13} />Back to cull</button>
                   </div>
                 </div>
                 <div className="canvas-grid">{canvases.map((c) => (<div className="canvas-item" key={c.name}><img src={c.url} alt={c.name} loading="lazy" decoding="async" /></div>))}</div>
