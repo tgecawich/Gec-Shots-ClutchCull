@@ -8,8 +8,10 @@ production. Nothing here changes engine behaviour; it only measures it.
 Three modes, each answering a different question.
 
 1. ACCURACY  (needs ground truth: the frames YOU kept)
-       python tools/eval_cull.py accuracy /path/to/shoot --kept kept.txt
-   kept.txt is one filename per line, the frames you actually used. Reports
+       python tools/eval_cull.py accuracy /path/to/shoot --kept-folder /path/to/keepers
+   Point --kept-folder at the frames you actually used (or --kept at a text
+   file of filenames). Matching is by filename stem, so a CR3 roll pairs with
+   JPEG exports automatically. Reports
    precision@k, recall@k and where your picks landed in the engine's ranking.
    This is the only mode that can say "more correct".
 
@@ -30,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import itertools
+import re
 import random
 import sys
 from pathlib import Path
@@ -52,30 +55,90 @@ def load(folder: Path):
     return {m["filename"]: m for m in metrics if not m.get("unreadable")}
 
 
-def order_of(by_name, names, preset="Balanced", weights=None):
-    """Ranked filenames for a subset. weights overrides the preset."""
+def order_of(by_name, names, preset="Balanced", weights=None,
+             blur=40.0, dupes=2):
+    """Ranked filenames for a subset. weights overrides the preset.
+
+    blur=0, dupes=0 produces a COMPLETE ordering of every frame. That matters
+    for evaluation: rank_metrics only returns survivors, so a frame the engine
+    rejected outright disappears from the result. Measuring recall against the
+    survivors only would hide the single worst failure this engine can have,
+    which is discarding a photo the photographer wanted.
+    """
     subset = [by_name[n] for n in names]
     if weights is None:
-        res = engine.rank_metrics(subset, top_n=len(subset), preset=preset)
+        res = engine.rank_metrics(subset, top_n=len(subset), preset=preset,
+                                  blur_threshold=blur, duplicate_threshold=dupes)
     else:
         saved = engine.SCORING_PRESETS.get("__eval__")
         engine.SCORING_PRESETS["__eval__"] = weights
-        res = engine.rank_metrics(subset, top_n=len(subset), preset="__eval__")
+        res = engine.rank_metrics(subset, top_n=len(subset), preset="__eval__",
+                                  blur_threshold=blur, duplicate_threshold=dupes)
         if saved is None:
             engine.SCORING_PRESETS.pop("__eval__", None)
     return [k["filename"] for k in res["keepers"]], {k["filename"]: k["score"] for k in res["keepers"]}
 
 
 # ── 1. accuracy ────────────────────────────────────────────────────────────
-def accuracy(folder: Path, kept_file: Path, preset: str):
+def read_kept(by_name, kept_file: Path | None, kept_folder: Path | None) -> set[str]:
+    """Resolve which frames the photographer actually kept.
+
+    Matching is on the filename STEM, case-insensitively, because the keepers
+    are almost never the same files as the originals: the roll is D91A1234.CR3
+    and the keeper is D91A1234.jpg exported from Lightroom. Extension matching
+    would silently find zero overlap and report the engine as useless.
+    """
+    stems = {Path(n).stem.lower(): n for n in by_name}
+    wanted: set[str] = set()
+    raw: list[str] = []
+    if kept_file:
+        raw += [l.strip() for l in kept_file.read_text().splitlines() if l.strip()]
+    if kept_folder:
+        raw += [p.name for p in kept_folder.iterdir() if p.is_file() and not p.name.startswith(".")]
+    unmatched = []
+    for r in raw:
+        s = Path(r).stem.lower()
+        # ClutchCull's own export prefixes the rank (01_D91A6535.CR3), and
+        # Lightroom can prefix a sequence too. Strip a leading "<digits>_" so a
+        # previously exported folder still matches the original roll.
+        alt = re.sub(r"^\d+[_-]", "", s)
+        if s in stems:
+            wanted.add(stems[s])
+        elif alt in stems:
+            wanted.add(stems[alt])
+        else:
+            unmatched.append(r)
+    if unmatched:
+        print(f"note: {len(unmatched)} keeper name(s) had no match in the shoot folder, "
+              f"e.g. {unmatched[:3]}")
+    return wanted
+
+
+def accuracy(folder: Path, kept_file: Path | None, kept_folder: Path | None, preset: str):
     by_name = load(folder)
-    kept = {l.strip() for l in kept_file.read_text().splitlines() if l.strip()}
-    kept = {k for k in kept if k in by_name}
+    kept = read_kept(by_name, kept_file, kept_folder)
     if not kept:
-        sys.exit("none of the filenames in --kept matched images in the folder")
-    order, _ = order_of(by_name, list(by_name), preset)
+        sys.exit("no keeper filenames matched the shoot folder (checked by stem, "
+                 "case-insensitive) - are these the same shoot?")
+    # Complete ordering: gate and dedup off, so every frame has a rank.
+    order, _ = order_of(by_name, list(by_name), preset, blur=0.0, dupes=0)
     pos = {n: i for i, n in enumerate(order)}
     n, g = len(order), len(kept)
+
+    # Separately: what would a REAL cull (gate + dedup on) have thrown away?
+    live = engine.rank_metrics([by_name[x] for x in by_name], top_n=len(by_name),
+                               preset=preset)
+    survived = {k["filename"] for k in live["keepers"]}
+    binned = sorted(kept - survived)
+    if binned:
+        print(f"\n*** {len(binned)} of your keepers were DISCARDED outright "
+              f"(blur gate or duplicate), not merely ranked low:")
+        for f in binned[:10]:
+            print(f"      {f}")
+        print("    This is the worst failure mode: the photographer cannot rescue")
+        print("    what they never see. Fix this before tuning any weights.")
+    else:
+        print("\nno keeper was discarded outright by the blur gate or dedup")
     print(f"\nground truth: {g} keepers out of {n} frames ({100*g/n:.0f}%)\n")
     print(f"{'k':>5}{'precision@k':>14}{'recall@k':>11}   what it means")
     for k in sorted({g, g * 2, 10, 25, 35, 50, n}):
@@ -163,15 +226,21 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mode", choices=["accuracy", "stability", "ablation"])
     ap.add_argument("folder", type=Path)
-    ap.add_argument("--kept", type=Path, help="file of kept filenames (accuracy mode)")
+    ap.add_argument("--kept", type=Path, help="text file, one kept filename per line")
+    ap.add_argument("--kept-folder", type=Path, help="folder containing your keepers "
+                    "(easiest: point this at your exported/edited folder)")
     ap.add_argument("--preset", default="Balanced", choices=list(engine.SCORING_PRESETS))
     a = ap.parse_args()
     if not a.folder.is_dir():
         sys.exit(f"not a folder: {a.folder}")
     if a.mode == "accuracy":
-        if not a.kept or not a.kept.exists():
-            sys.exit("accuracy mode needs --kept pointing at a file of filenames you kept")
-        accuracy(a.folder, a.kept, a.preset)
+        if not a.kept and not a.kept_folder:
+            sys.exit("accuracy mode needs --kept-folder (your keepers) or --kept (a filename list)")
+        if a.kept and not a.kept.exists():
+            sys.exit(f"no such file: {a.kept}")
+        if a.kept_folder and not a.kept_folder.is_dir():
+            sys.exit(f"not a folder: {a.kept_folder}")
+        accuracy(a.folder, a.kept, a.kept_folder, a.preset)
     elif a.mode == "stability":
         stability(a.folder, a.preset)
     else:
