@@ -222,9 +222,61 @@ def ablation(folder: Path, preset: str):
     print("every score by the same amount and changes no decision.")
 
 
+
+# ── 4. tune ────────────────────────────────────────────────────────────────
+def tune(folder: Path, kept_file: Path | None, kept_folder: Path | None, preset: str):
+    """Sweep the default-off signals against ground truth and report the effect.
+
+    This is the step that decides whether eye sharpness and ball proximity are
+    switched on in production. Nothing is adopted because it sounds right; it
+    is adopted if recall against the photographer's own picks goes up.
+    """
+    by_name = load(folder)
+    kept = read_kept(by_name, kept_file, kept_folder)
+    if not kept:
+        sys.exit("no keeper filenames matched the shoot folder")
+    g = len(kept)
+
+    def recall_at(k):
+        order, _ = order_of(by_name, list(by_name), preset, blur=0.0, dupes=0)
+        return sum(1 for f in order[:k] if f in kept) / g
+
+    print(f"\nground truth: {g} keepers of {len(by_name)} frames")
+    print(f"metric: recall@{g}  (share of YOUR picks the engine puts in its top {g})\n")
+    base_eye, base_ball = engine.EYE_WEIGHT, engine.BALL_BONUS
+    try:
+        engine.EYE_WEIGHT, engine.BALL_BONUS = 0.0, 0.0
+        base = recall_at(g)
+        print(f"{'eye_weight':>11}{'ball_bonus':>12}{'recall':>9}{'change':>9}")
+        print(f"{0.0:>11.2f}{0.0:>12.1f}{base:>9.3f}{'baseline':>9}")
+        best = (base, 0.0, 0.0)
+        for ew in (0.0, 0.2, 0.35, 0.5, 0.65):
+            for bb in (0.0, 2.0, 5.0):
+                if ew == 0.0 and bb == 0.0:
+                    continue
+                engine.EYE_WEIGHT, engine.BALL_BONUS = ew, bb
+                r = recall_at(g)
+                mark = "  <-- best" if r > best[0] else ""
+                print(f"{ew:>11.2f}{bb:>12.1f}{r:>9.3f}{r-base:>+9.3f}{mark}")
+                if r > best[0]:
+                    best = (r, ew, bb)
+    finally:
+        engine.EYE_WEIGHT, engine.BALL_BONUS = base_eye, base_ball
+    r, ew, bb = best
+    print()
+    if r > base:
+        print(f"BEST: eye_weight={ew}, ball_bonus={bb}  ->  recall {base:.3f} to {r:.3f} "
+              f"(+{100*(r-base):.1f} points)")
+        print(f"ship with:  CLUTCHCULL_EYE_WEIGHT={ew}  CLUTCHCULL_BALL_BONUS={bb}")
+    else:
+        print("No setting beat the baseline on this shoot. Leave both at 0 and")
+        print("keep looking: a signal that does not improve recall is not a feature.")
+    print("\nOne shoot is one data point. Confirm on a second before shipping.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["accuracy", "stability", "ablation"])
+    ap.add_argument("mode", choices=["accuracy", "stability", "ablation", "tune"])
     ap.add_argument("folder", type=Path)
     ap.add_argument("--kept", type=Path, help="text file, one kept filename per line")
     ap.add_argument("--kept-folder", type=Path, help="folder containing your keepers "
@@ -241,6 +293,10 @@ def main():
         if a.kept_folder and not a.kept_folder.is_dir():
             sys.exit(f"not a folder: {a.kept_folder}")
         accuracy(a.folder, a.kept, a.kept_folder, a.preset)
+    elif a.mode == "tune":
+        if not a.kept and not a.kept_folder:
+            sys.exit("tune mode needs --kept-folder or --kept")
+        tune(a.folder, a.kept, a.kept_folder, a.preset)
     elif a.mode == "stability":
         stability(a.folder, a.preset)
     else:

@@ -59,6 +59,21 @@ FACE_DETECT_WIDTH = int(os.getenv("CLUTCHCULL_FACE_WIDTH", "800"))
 # frame) scored ~0.2 and were always beaten by person size, making face
 # detection effectively invisible in the ranking.
 FACE_FULL_W = float(os.getenv("CLUTCHCULL_FACE_FULL_W", "0.12"))
+# --- signals read from detectors we already run, DEFAULT OFF ----------------
+# Both are computed on every frame and stored, but contribute nothing to the
+# score until switched on. The last scoring change made without measurement
+# rejected entire shoots in production, so these stay dark until a labelled
+# shoot proves they help. tools/eval_cull.py can A/B them.
+#
+# EYE_WEIGHT: how much of the sharpness term comes from the eyes rather than
+# the whole subject box, for frames where eye landmarks exist (29 of 33 on a
+# measured shoot). A tack-sharp jersey with a soft face currently scores well.
+EYE_WEIGHT = float(os.getenv("CLUTCHCULL_EYE_WEIGHT", "0.0"))
+# BALL_BONUS: additive score bonus when a sport object sits near the subject.
+# Deliberately a small bonus, not a scoring dimension: measured coverage is
+# only 4 of 33 frames, because a ball is a handful of pixels at YOLOX 256.
+# Worth revisiting at detector size 416+, which needs more than a 512MB box.
+BALL_BONUS = float(os.getenv("CLUTCHCULL_BALL_BONUS", "0.0"))
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 CANVAS_MAX_LONG_EDGE = 2880
 
@@ -117,6 +132,9 @@ class PhotoCandidate:
     frame_tiled: float = 0.0   # tiled frame sharpness, for the focus RATIO only
     face_score: float = 0.0
     has_face: bool = False     # True only if the subject was really LOCATED
+    # --- signals the detectors already produced and we used to discard ---
+    ball_score: float = 0.0    # sports object present, weighted by nearness to subject
+    eye_sharpness: float = 0.0 # absolute sharpness measured at the EYES
     perceptual_hash: imagehash.ImageHash | None = None
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -172,7 +190,16 @@ def detect_faces(bgr):
         _, faces = det.detect(bgr)
         if faces is None:
             return []
-        return [(float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[-1])) for f in faces]
+        # YuNet returns 15 values per face: box(4), five landmarks(10), conf(1).
+        # The landmarks were being thrown away. They are the cheapest route to
+        # the thing that actually decides a portrait, which is whether the EYES
+        # are sharp, not whether the torso is. Returned as a 6th element so the
+        # existing 5-tuple unpacking in callers keeps working.
+        out = []
+        for f in faces:
+            lm = [(float(f[4 + 2 * i]), float(f[5 + 2 * i])) for i in range(5)] if len(f) >= 15 else []
+            out.append((float(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[-1]), lm))
+        return out
     except Exception:
         return []
 
@@ -190,7 +217,9 @@ def detect_faces_scaled(rgb):
         small, inv = rgb, 1.0
     faces = detect_faces(cv2.cvtColor(small, cv2.COLOR_RGB2BGR))
     if inv != 1.0:
-        faces = [(x * inv, y * inv, fw * inv, fh * inv, conf) for (x, y, fw, fh, conf) in faces]
+        faces = [(x * inv, y * inv, fw * inv, fh * inv, conf,
+                  [(px * inv, py * inv) for px, py in lm])
+                 for (x, y, fw, fh, conf, lm) in faces]
     return faces
 
 
@@ -257,11 +286,24 @@ def _yolox_grid():
     return _YOLOX_GRID
 
 
-def detect_persons(bgr):
-    """Return [(x, y, w, h, conf)] for people, in `bgr` pixel coords."""
+# COCO classes worth keeping for a sports cull. The detector is a full 80-class
+# COCO model and we were discarding 79 of them: the tensor is already computed,
+# so reading these costs one argmax and nothing else. Measured on a real soccer
+# shoot, "sports ball" fires on 21 of 33 frames at up to 0.83 confidence.
+BALL_CLASS = 32          # sports ball
+EQUIPMENT_CLASSES = {32, 34, 35, 38, 36, 30, 31, 37, 29}  # ball, bat, glove, racket, board, skis...
+
+
+def detect_objects(bgr, conf=None):
+    """Return {class_id: [(x, y, w, h, conf)]} in `bgr` pixel coords.
+
+    One forward pass serves every class. detect_persons() is a thin wrapper so
+    existing callers are unaffected.
+    """
     net = _get_person_net()
     if net is None:
-        return []
+        return {}
+    thr = PERSON_CONF if conf is None else conf
     try:
         h, w = bgr.shape[:2]
         blob = cv2.dnn.blobFromImage(
@@ -275,22 +317,30 @@ def detect_persons(bgr):
         wh = np.exp(out[:, 2:4]) * strides
         cls_scores = out[:, 5:]
         scores = out[:, 4] * cls_scores.max(1)
-        keep = (cls_scores.argmax(1) == 0) & (scores > PERSON_CONF)  # class 0 = person
-        if not keep.any():
-            return []
-        xy, wh, sc = xy[keep], wh[keep], scores[keep]
-        boxes = np.stack([xy[:, 0] - wh[:, 0] / 2, xy[:, 1] - wh[:, 1] / 2, wh[:, 0], wh[:, 1]], 1)
-        idx = cv2.dnn.NMSBoxes(boxes.tolist(), sc.tolist(), PERSON_CONF, 0.45)
-        if len(idx) == 0:
-            return []
+        labels = cls_scores.argmax(1)
         sx, sy = w / float(YOLOX_SIZE), h / float(YOLOX_SIZE)
-        return [
-            (float(boxes[i][0] * sx), float(boxes[i][1] * sy),
-             float(boxes[i][2] * sx), float(boxes[i][3] * sy), float(sc[i]))
-            for i in np.array(idx).flatten()
-        ]
+        found: dict[int, list] = {}
+        for cls in np.unique(labels[scores > thr]):
+            keep = (labels == cls) & (scores > thr)
+            bxy, bwh, sc = xy[keep], wh[keep], scores[keep]
+            boxes = np.stack([bxy[:, 0] - bwh[:, 0] / 2, bxy[:, 1] - bwh[:, 1] / 2,
+                              bwh[:, 0], bwh[:, 1]], 1)
+            idx = cv2.dnn.NMSBoxes(boxes.tolist(), sc.tolist(), thr, 0.45)
+            if len(idx) == 0:
+                continue
+            found[int(cls)] = [
+                (float(boxes[i][0] * sx), float(boxes[i][1] * sy),
+                 float(boxes[i][2] * sx), float(boxes[i][3] * sy), float(sc[i]))
+                for i in np.array(idx).flatten()
+            ]
+        return found
     except Exception:
-        return []
+        return {}
+
+
+def detect_persons(bgr):
+    """Return [(x, y, w, h, conf)] for people, in `bgr` pixel coords."""
+    return detect_objects(bgr).get(0, [])
 
 
 def _region_sharpness(gray, x0, y0, x1, y1, tiles=4):
@@ -321,7 +371,7 @@ def _face_presence(faces, img_w) -> float:
     """How prominent and confident the clearest face is (0-1)."""
     if not faces or not img_w:
         return 0.0
-    x, y, fw, fh, conf = max(faces, key=lambda f: f[2] * f[3])
+    x, y, fw, fh, conf = max(faces, key=lambda f: f[2] * f[3])[:5]
     return min(1.0, fw / (FACE_FULL_W * img_w)) * conf
 
 
@@ -351,7 +401,7 @@ def _pick_subject(persons, faces, img_w, img_h):
         )
         return subj, presence, "person"
     if faces:
-        x, y, fw, fh, conf = max(faces, key=lambda f: score_box(*f))
+        x, y, fw, fh, conf = max(faces, key=lambda f: score_box(*f[:5]))[:5]
         subj = (x - fw * 0.6, y - fh * 0.5, x + fw * 1.6, y + fh + fh * 1.4)
         return subj, _face_presence(faces, img_w), "face"
     mw, mh = img_w * 0.225, img_h * 0.225
@@ -364,12 +414,12 @@ def _subject_metrics(gray, faces, img_w, img_h):
         maxd = (cx ** 2 + cy ** 2) ** 0.5 or 1.0
 
         def priority(f):
-            x, y, fw, fh, conf = f
+            x, y, fw, fh, conf = f[:5]
             fcx, fcy = x + fw / 2.0, y + fh / 2.0
             centrality = 1.0 - min(1.0, ((fcx - cx) ** 2 + (fcy - cy) ** 2) ** 0.5 / maxd)
             return (fw * fh) * (0.5 + 0.5 * centrality) * conf
 
-        x, y, fw, fh, conf = max(faces, key=priority)
+        x, y, fw, fh, conf = max(faces, key=priority)[:5]
         x0, y0 = int(max(0, x - fw * 0.6)), int(max(0, y - fh * 0.5))
         x1, y1 = int(min(img_w, x + fw * 1.6)), int(min(img_h, y + fh + fh * 1.4))
         face_score = min(1.0, (fw / (0.22 * img_w)) if img_w else 0.0) * conf
@@ -410,6 +460,61 @@ def _load_metrics_image(path: Path) -> Image.Image | None:
         return None
 
 
+def _ball_score(objects, subj, img_w, img_h) -> float:
+    """Is the ball (or sport equipment) in frame, and is it near the subject?
+
+    Free signal: the detector is an 80-class COCO model and this reads classes
+    it already produced. For a sports photographer the ball is most of the
+    difference between a moment and a man standing on grass, and no
+    general-purpose culler has it.
+
+    Returns 0 when nothing is found, rising toward 1 as the object sits closer
+    to the subject box. Nearness matters: a ball 40 metres upfield behind a
+    portrait is not what makes that frame worth keeping.
+    """
+    boxes = [b for cls in EQUIPMENT_CLASSES for b in objects.get(cls, [])]
+    if not boxes:
+        return 0.0
+    sx0, sy0, sx1, sy1 = subj
+    scx, scy = (sx0 + sx1) / 2.0, (sy0 + sy1) / 2.0
+    diag = (img_w ** 2 + img_h ** 2) ** 0.5 or 1.0
+    best = 0.0
+    for (x, y, w, h, conf) in boxes:
+        bcx, bcy = x + w / 2.0, y + h / 2.0
+        d = ((bcx - scx) ** 2 + (bcy - scy) ** 2) ** 0.5 / diag
+        best = max(best, conf * max(0.0, 1.0 - d / 0.5))   # fades out by half a diagonal
+    return min(1.0, best)
+
+
+def _eye_sharpness(gray, faces) -> float:
+    """Sharpness measured at the EYES, not across the whole torso.
+
+    Subject sharpness currently averages a person-sized box, so a tack-sharp
+    jersey with a soft face scores well. For any frame with a visible face the
+    eyes are what a photographer actually judges. YuNet already returns the eye
+    landmarks; this just stops throwing them away.
+
+    Returns 0.0 when no usable landmarks exist, in which case callers should
+    fall back to subject sharpness rather than treating it as a failure.
+    """
+    if not faces:
+        return 0.0
+    f = max(faces, key=lambda q: q[2] * q[3])
+    if len(f) < 6 or not f[5]:
+        return 0.0
+    fw = f[2]
+    h, w = gray.shape[:2]
+    vals = []
+    for (px, py) in f[5][:2]:                      # right eye, left eye
+        r = max(6, int(fw * 0.28))                 # window scales with face size
+        x0, y0 = int(max(0, px - r)), int(max(0, py - r))
+        x1, y1 = int(min(w, px + r)), int(min(h, py + r))
+        patch = gray[y0:y1, x0:x1]
+        if patch.size >= 36:
+            vals.append(float(cv2.Laplacian(patch, cv2.CV_32F).var()))
+    return max(vals) if vals else 0.0
+
+
 def compute_metrics(path: Path) -> PhotoCandidate | None:
     preview = _load_metrics_image(path)
     if preview is None:
@@ -430,13 +535,17 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     sharpness = float(cv2.Laplacian(gray, cv2.CV_32F).var())
     frame_tiled = _region_sharpness(gray, 0, 0, w, h, tiles=6)
     faces = detect_faces_scaled(rgb)
-    persons = detect_persons(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    objects = detect_objects(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    persons = objects.get(0, [])
     (sx0, sy0, sx1, sy1), presence, src = _pick_subject(persons, faces, w, h)
     subject_sharp = _region_sharpness(gray, sx0, sy0, sx1, sy1)
+    ball = _ball_score(objects, (sx0, sy0, sx1, sy1), w, h)
+    eyes = _eye_sharpness(gray, faces)
     return PhotoCandidate(
         path=path, sharpness=sharpness, frame_tiled=frame_tiled, detail_ratio=detail,
         contrast=contrast, brightness_mean=brightness, exposure_balance=exposure,
         subject_sharpness=subject_sharp, face_score=presence,
+        ball_score=ball, eye_sharpness=eyes,
         has_face=(src != "center"),  # subject was actually located, not guessed
         perceptual_hash=imagehash.phash(preview),
     )
@@ -490,6 +599,12 @@ def add_scores(cands, weights, blur_threshold=40.0):
         # subject to the top.
         focus = _focus_factor(c)
         sharp_i = subj[i] * focus
+        # Eyes, when we have them. Compared against the same absolute blur
+        # floor the gate uses, so this does not reintroduce batch dependence.
+        if EYE_WEIGHT > 0.0 and c.eye_sharpness > 0.0:
+            eye_q = max(0.0, min(1.0, (c.eye_sharpness - blur_threshold)
+                                 / max(1e-6, blur_threshold * SHARP_GATE_SPAN - blur_threshold)))
+            sharp_i = (1.0 - EYE_WEIGHT) * sharp_i + EYE_WEIGHT * eye_q
         detail_i = det[i] * (0.5 + 0.5 * focus)  # background detail counts less on a focus miss
         c.score_breakdown = {"sharpness": sharp_i, "faces": fac[i], "detail": detail_i,
                              "contrast": con[i], "exposure": exp[i]}
@@ -505,6 +620,10 @@ def add_scores(cands, weights, blur_threshold=40.0):
         q = 0.0 if hi <= lo else max(0.0, min(1.0, (eff - lo) / (hi - lo)))
         gate = SHARP_GATE_FLOOR + (1.0 - SHARP_GATE_FLOOR) * q
         c.score = base * gate
+        if BALL_BONUS > 0.0 and c.ball_score > 0.0:
+            # A bonus, never a penalty: most frames legitimately have no ball
+            # in them, so absence must not be evidence of a bad photograph.
+            c.score = min(100.0, c.score + BALL_BONUS * c.ball_score)
         # Only flag 'soft' when we actually located the subject: a guessed
         # center crop isn't trustworthy enough to warn on.
         c.soft = bool(c.has_face) and SHARP_SOFT_MARK > 0 and eff < blur_threshold * SHARP_SOFT_MARK
@@ -560,6 +679,8 @@ def _metrics_to_dict(c: PhotoCandidate) -> dict:
         "frame_tiled": c.frame_tiled,
         "face_score": c.face_score,
         "has_face": c.has_face,
+        "ball_score": c.ball_score,
+        "eye_sharpness": c.eye_sharpness,
         "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
     }
 
@@ -577,6 +698,11 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
         frame_tiled=float(d.get("frame_tiled", d.get("sharpness", 0.0))),
         face_score=float(d.get("face_score", 0.0)),
         has_face=bool(d.get("has_face", False)),
+        # Default 0.0 so metrics cached by a browser BEFORE these existed still
+        # rank: the /rank endpoint replays whatever the client stored, and a
+        # KeyError there would break re-ranking for anyone mid-session.
+        ball_score=float(d.get("ball_score", 0.0)),
+        eye_sharpness=float(d.get("eye_sharpness", 0.0)),
         perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
     )
 
