@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ClutchCull — which frame would you keep?</title>
+<!--
+  Pairwise labelling. Open this file directly in a browser, pick a folder of
+  photos, and answer "which of these two would you keep?" over and over.
+
+  Why pairs instead of scoring each photo 1-10: people are unreliable at
+  absolute scores (the scale drifts within a single sitting, and it drifts
+  differently on a different day) but very consistent at a side-by-side
+  choice. Comparisons also work when every photo is decent, which matters here
+  because the first shoot available to test on is already an edit.
+
+  Pairs are sampled so every frame is shown a similar number of times, which
+  keeps the resulting ranking unbiased. Roughly 4-6 comparisons per photo is
+  enough to order a shoot; 33 photos is about 80 clicks, a few minutes.
+
+  Progress is saved in localStorage, so closing the tab loses nothing.
+  Export writes comparisons.csv, which tools/eval_cull.py pairs reads.
+-->
+<style>
+  :root { --bg:#0b0b0c; --panel:#141416; --line:rgba(255,255,255,.1);
+          --text:#f2f2f3; --muted:#9a9aa6; --accent:#ff9231; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font:15px/1.5 system-ui,sans-serif;
+         min-height:100vh; display:flex; flex-direction:column; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex;
+           gap:14px; align-items:center; flex-wrap:wrap; }
+  button { font:inherit; font-weight:600; padding:9px 16px; border-radius:7px;
+           border:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; }
+  button:hover { background:#1e1e24; }
+  button.primary { background:var(--accent); color:#1a0e02; border-color:transparent; }
+  #meta { color:var(--muted); font-size:13px; margin-left:auto; }
+  #bar { height:3px; background:var(--panel); }
+  #fill { height:100%; width:0; background:var(--accent); transition:width .2s; }
+  main { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:18px; }
+  .side { display:flex; flex-direction:column; gap:10px; min-height:0; }
+  .imgwrap { flex:1; background:var(--panel); border:2px solid var(--line); border-radius:10px;
+             overflow:hidden; display:grid; place-items:center; cursor:pointer; min-height:0; }
+  .imgwrap:hover { border-color:var(--accent); }
+  .imgwrap img { width:100%; height:100%; object-fit:contain; }
+  .side b { text-align:center; color:var(--muted); font-size:12px; letter-spacing:.1em;
+            text-transform:uppercase; font-weight:700; }
+  footer { padding:12px 20px; border-top:1px solid var(--line); color:var(--muted);
+           font-size:13px; display:flex; gap:18px; justify-content:center; flex-wrap:wrap; }
+  kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px;
+        padding:1px 6px; font:12px ui-monospace,monospace; color:var(--text); }
+  #done { display:none; padding:40px; text-align:center; }
+  #done h2 { font-size:22px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<header>
+  <button id="pick" class="primary">Pick photo folder</button>
+  <button id="undo">Undo</button>
+  <button id="dl">Export comparisons.csv</button>
+  <button id="reset">Reset</button>
+  <span id="meta">no folder loaded</span>
+</header>
+<div id="bar"><div id="fill"></div></div>
+
+<main id="stage">
+  <div class="side"><div class="imgwrap" id="wrapA"><img id="imgA" alt="left"></div><b>← keep this one</b></div>
+  <div class="side"><div class="imgwrap" id="wrapB"><img id="imgB" alt="right"></div><b>keep this one →</b></div>
+</main>
+
+<div id="done">
+  <h2>That's enough to rank this shoot.</h2>
+  <p style="color:var(--muted)">Click <b>Export comparisons.csv</b> and send it over. Keep going if you like, more is better.</p>
+</div>
+
+<footer>
+  <span><kbd>←</kbd> left is better</span>
+  <span><kbd>→</kbd> right is better</span>
+  <span><kbd>space</kbd> too close to call</span>
+  <span><kbd>u</kbd> undo</span>
+</footer>
+
+<script>
+(() => {
+  const KEY = "cc_pairs_v1";
+  // ~5 comparisons per photo orders a shoot well without being a chore.
+  const PER_PHOTO = 5;
+  let files = [], urls = new Map(), pairs = [], at = 0, results = [];
+
+  const $ = id => document.getElementById(id);
+  const save = () => localStorage.setItem(KEY, JSON.stringify({ results, at }));
+
+  function buildPairs(n) {
+    // Round-robin style sampling: each photo meets PER_PHOTO distinct others,
+    // with offsets spread across the list so no frame only ever meets its
+    // neighbours. Shuffled so order of presentation carries no information.
+    const out = new Set();
+    const offs = [];
+    for (let k = 1; k <= Math.ceil(PER_PHOTO / 2); k++) {
+      offs.push(k, Math.max(1, Math.floor(n * k / (PER_PHOTO + 1))));
+    }
+    for (let i = 0; i < n; i++) {
+      for (const o of offs) {
+        const j = (i + o) % n;
+        if (i === j) continue;
+        out.add(i < j ? `${i},${j}` : `${j},${i}`);
+      }
+    }
+    const arr = [...out].map(s => s.split(",").map(Number));
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function url(i) {
+    if (!urls.has(i)) urls.set(i, URL.createObjectURL(files[i]));
+    return urls.get(i);
+  }
+
+  function show() {
+    if (at >= pairs.length) {
+      $("stage").style.display = "none"; $("done").style.display = "block";
+      $("meta").textContent = `${results.length} comparisons recorded`;
+      return;
+    }
+    $("stage").style.display = "grid"; $("done").style.display = "none";
+    const [a, b] = pairs[at];
+    $("imgA").src = url(a); $("imgB").src = url(b);
+    $("fill").style.width = `${100 * at / pairs.length}%`;
+    $("meta").textContent = `${at + 1} of ${pairs.length}  ·  ${results.length} recorded`;
+    // Preload the next pair so the UI never stalls between clicks.
+    if (at + 1 < pairs.length) pairs[at + 1].forEach(i => { new Image().src = url(i); });
+  }
+
+  function answer(winner) {
+    const [a, b] = pairs[at];
+    results.push({ a: files[a].name, b: files[b].name, winner });
+    at++; save(); show();
+  }
+
+  $("pick").onclick = () => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.webkitdirectory = true;
+    inp.onchange = () => {
+      files = [...inp.files].filter(f => /\.(jpe?g|png|webp)$/i.test(f.name))
+                            .sort((x, y) => x.name.localeCompare(y.name));
+      if (files.length < 4) { alert("Need at least 4 photos."); return; }
+      pairs = buildPairs(files.length);
+      const saved = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (saved && saved.results?.length) {
+        const keep = confirm(`Resume ${saved.results.length} saved comparisons?`);
+        if (keep) { results = saved.results; at = Math.min(saved.at, pairs.length); }
+        else localStorage.removeItem(KEY);
+      }
+      show();
+    };
+    inp.click();
+  };
+
+  $("dl").onclick = () => {
+    const rows = [["left", "right", "winner"],
+      ...results.map(r => [r.a, r.b, r.winner])];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "comparisons.csv"; a.click();
+  };
+
+  $("undo").onclick = () => { if (at > 0) { at--; results.pop(); save(); show(); } };
+  $("reset").onclick = () => {
+    if (confirm("Clear all comparisons?")) { results = []; at = 0; save(); show(); }
+  };
+  $("wrapA").onclick = () => files.length && at < pairs.length && answer("left");
+  $("wrapB").onclick = () => files.length && at < pairs.length && answer("right");
+
+  document.addEventListener("keydown", e => {
+    if (!files.length || at >= pairs.length) return;
+    if (e.key === "ArrowLeft") answer("left");
+    else if (e.key === "ArrowRight") answer("right");
+    else if (e.key === " ") { e.preventDefault(); answer("tie"); }
+    else if (e.key.toLowerCase() === "u") $("undo").click();
+  });
+})();
+</script>
+</body>
+</html>

@@ -31,6 +31,7 @@ Three modes, each answering a different question.
 from __future__ import annotations
 
 import argparse
+import csv
 import itertools
 import re
 import random
@@ -274,13 +275,106 @@ def tune(folder: Path, kept_file: Path | None, kept_folder: Path | None, preset:
     print("\nOne shoot is one data point. Confirm on a second before shipping.")
 
 
+
+# ── 5. pairs ───────────────────────────────────────────────────────────────
+def _bradley_terry(items, comps, iters=300):
+    """Fit a strength per photo from pairwise wins.
+
+    Bradley-Terry rather than raw win counts: a frame that only ever met strong
+    opponents and a frame that only met weak ones can have the same win rate
+    while being very different photographs. The iterative fit accounts for who
+    each frame actually played.
+    """
+    idx = {n: i for i, n in enumerate(items)}
+    w = np.ones(len(items))
+    wins = np.zeros(len(items))
+    plays = np.zeros((len(items), len(items)))
+    for a, b, winner in comps:
+        if a not in idx or b not in idx:
+            continue
+        i, j = idx[a], idx[b]
+        plays[i, j] += 1
+        plays[j, i] += 1
+        if winner == "left":
+            wins[i] += 1
+        elif winner == "right":
+            wins[j] += 1
+        else:                      # a tie is half a win each
+            wins[i] += 0.5
+            wins[j] += 0.5
+    for _ in range(iters):
+        denom = np.zeros(len(items))
+        for i in range(len(items)):
+            for j in range(len(items)):
+                if plays[i, j]:
+                    denom[i] += plays[i, j] / (w[i] + w[j])
+        new = np.where(denom > 0, wins / np.maximum(denom, 1e-9), w)
+        new = np.maximum(new, 1e-9)
+        new /= new.mean()
+        if np.allclose(new, w, rtol=1e-6):
+            w = new
+            break
+        w = new
+    return {n: float(w[idx[n]]) for n in items}
+
+
+def pairs(folder: Path, comps_file: Path, preset: str):
+    by_name = load(folder)
+    stems = {Path(n).stem.lower(): n for n in by_name}
+
+    def resolve(x):
+        return stems.get(Path(x).stem.lower())
+
+    comps = []
+    with open(comps_file, newline="") as f:
+        for row in list(csv.reader(f))[1:]:
+            if len(row) < 3:
+                continue
+            a, b, winner = resolve(row[0]), resolve(row[1]), row[2].strip()
+            if a and b and a != b:
+                comps.append((a, b, winner))
+    if not comps:
+        sys.exit("no comparisons matched photos in that folder")
+
+    items = sorted({x for c in comps for x in c[:2]})
+    strength = _bradley_terry(items, comps)
+    human = [n for n, _ in sorted(strength.items(), key=lambda kv: -kv[1])]
+    order, _ = order_of(by_name, list(by_name), preset, blur=0.0, dupes=0)
+    engine_rank = {n: i for i, n in enumerate(order)}
+    human_rank = {n: i for i, n in enumerate(human)}
+    shared = [n for n in human if n in engine_rank]
+
+    conc = disc = 0
+    for a, b in itertools.combinations(shared, 2):
+        same = (human_rank[a] < human_rank[b]) == (engine_rank[a] < engine_rank[b])
+        conc += same
+        disc += not same
+    tau = (conc - disc) / max(conc + disc, 1)
+
+    print(f"\n{len(comps)} comparisons over {len(items)} frames\n")
+    print(f"agreement with your ranking (Kendall tau): {tau:+.3f}")
+    print("   +1.00 = identical order, 0.00 = no better than chance, -1.00 = reversed")
+    half = max(1, len(shared) // 2)
+    overlap = len(set(human[:half]) & set(order[:half]))
+    print(f"top half overlap: {overlap}/{half} of your better half is in the engine's better half")
+
+    print("\nbiggest disagreements (your rank vs engine rank):")
+    gaps = sorted(shared, key=lambda n: -abs(human_rank[n] - engine_rank[n]))
+    for n in gaps[:8]:
+        hr, er = human_rank[n] + 1, engine_rank[n] + 1
+        who = "you rank it HIGHER" if hr < er else "engine ranks it higher"
+        print(f"  {n[:26]:<28} you #{hr:<3} engine #{er:<3}  {who}")
+    print("\nThose rows are the engine's actual failures. Everything else is noise.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["accuracy", "stability", "ablation", "tune"])
+    ap.add_argument("mode", choices=["accuracy", "stability", "ablation", "tune", "pairs"])
     ap.add_argument("folder", type=Path)
     ap.add_argument("--kept", type=Path, help="text file, one kept filename per line")
     ap.add_argument("--kept-folder", type=Path, help="folder containing your keepers "
                     "(easiest: point this at your exported/edited folder)")
+    ap.add_argument("--comparisons", type=Path, help="comparisons.csv from rank_pairs.html")
     ap.add_argument("--preset", default="Balanced", choices=list(engine.SCORING_PRESETS))
     a = ap.parse_args()
     if not a.folder.is_dir():
@@ -297,6 +391,10 @@ def main():
         if not a.kept and not a.kept_folder:
             sys.exit("tune mode needs --kept-folder or --kept")
         tune(a.folder, a.kept, a.kept_folder, a.preset)
+    elif a.mode == "pairs":
+        if not a.comparisons or not a.comparisons.exists():
+            sys.exit("pairs mode needs --comparisons comparisons.csv from tools/rank_pairs.html")
+        pairs(a.folder, a.comparisons, a.preset)
     elif a.mode == "stability":
         stability(a.folder, a.preset)
     else:
