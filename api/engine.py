@@ -74,6 +74,24 @@ EYE_WEIGHT = float(os.getenv("CLUTCHCULL_EYE_WEIGHT", "0.0"))
 # only 4 of 33 frames, because a ball is a handful of pixels at YOLOX 256.
 # Worth revisiting at detector size 416+, which needs more than a 512MB box.
 BALL_BONUS = float(os.getenv("CLUTCHCULL_BALL_BONUS", "0.0"))
+# BOKEH_WEIGHT: reward a clean, out-of-focus background behind a located
+# subject. _focus_factor can only PENALISE a soft subject (it caps at 1.0), so
+# the engine had no way to reward separation, which is the single thing a sports
+# photographer is buying when they shoot wide open.
+#
+# Measured against 166 pairwise judgements on a real 123 frame shoot: scoring on
+# face presence + ball proximity + background blur agreed with the photographer
+# on 69.3% of head-to-head choices, against 49.4% for the shipping weights (a
+# coin flip is 50%). Repeated split-half validation, choosing the model on one
+# half of the comparisons and scoring it on the unseen half, held at 67.3%
+# (5th-95th 60.2% to 73.5%).
+#
+# Still default 0.0: that is ONE photographer, ONE sport, and every frame in it
+# had already passed the blur gate, so it says nothing about the first cut.
+BOKEH_WEIGHT = float(os.getenv("CLUTCHCULL_BOKEH_WEIGHT", "0.0"))
+# Background sharpness at or below this reads as fully separated; at
+# BOKEH_FULL * BOKEH_SPAN and above it reads as a busy, in-focus background.
+BOKEH_SPAN = float(os.getenv("CLUTCHCULL_BOKEH_SPAN", "400.0"))
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 CANVAS_MAX_LONG_EDGE = 2880
 
@@ -135,6 +153,7 @@ class PhotoCandidate:
     # --- signals the detectors already produced and we used to discard ---
     ball_score: float = 0.0    # sports object present, weighted by nearness to subject
     eye_sharpness: float = 0.0 # absolute sharpness measured at the EYES
+    bg_sharpness: float = 0.0  # sharpness of the frame EXCLUDING the subject
     perceptual_hash: imagehash.ImageHash | None = None
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -460,6 +479,31 @@ def _load_metrics_image(path: Path) -> Image.Image | None:
         return None
 
 
+def _background_sharpness(gray, subj) -> float:
+    """Sharpness of everything EXCEPT the subject.
+
+    This is the metric a sports photographer is actually optimising when they
+    shoot wide open: a clean, melted background behind a clear subject. The
+    engine could previously only PENALISE a soft subject (_focus_factor caps at
+    1.0), so a frame with beautiful separation scored exactly the same as one
+    where the whole scene was equally sharp.
+
+    Measured against 166 pairwise judgements on a real shoot, background
+    sharpness correlates -0.24 with what the photographer preferred, stronger
+    than detail (-0.28 but also a proxy for this) and far stronger than subject
+    sharpness itself (-0.05) among frames that already passed the blur gate.
+
+    The subject box is blanked rather than cropped around, so the subject's own
+    sharpness cannot inflate the number meant to describe what is behind it.
+    """
+    x0, y0, x1, y1 = (int(max(0, v)) for v in subj)
+    bg = gray.copy()
+    bg[y0:y1, x0:x1] = 0
+    if int((bg > 0).sum()) < 100:        # subject fills the frame; nothing behind it
+        return 0.0
+    return float(cv2.Laplacian(bg, cv2.CV_32F).var())
+
+
 def _ball_score(objects, subj, img_w, img_h) -> float:
     """Is the ball (or sport equipment) in frame, and is it near the subject?
 
@@ -541,11 +585,12 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     subject_sharp = _region_sharpness(gray, sx0, sy0, sx1, sy1)
     ball = _ball_score(objects, (sx0, sy0, sx1, sy1), w, h)
     eyes = _eye_sharpness(gray, faces)
+    bg = _background_sharpness(gray, (sx0, sy0, sx1, sy1))
     return PhotoCandidate(
         path=path, sharpness=sharpness, frame_tiled=frame_tiled, detail_ratio=detail,
         contrast=contrast, brightness_mean=brightness, exposure_balance=exposure,
         subject_sharpness=subject_sharp, face_score=presence,
-        ball_score=ball, eye_sharpness=eyes,
+        ball_score=ball, eye_sharpness=eyes, bg_sharpness=bg,
         has_face=(src != "center"),  # subject was actually located, not guessed
         perceptual_hash=imagehash.phash(preview),
     )
@@ -619,6 +664,13 @@ def add_scores(cands, weights, blur_threshold=40.0):
         lo, hi = blur_threshold, blur_threshold * SHARP_GATE_SPAN
         q = 0.0 if hi <= lo else max(0.0, min(1.0, (eff - lo) / (hi - lo)))
         gate = SHARP_GATE_FLOOR + (1.0 - SHARP_GATE_FLOOR) * q
+        # Subject separation: a melted background behind a located subject.
+        # Only applied when the subject was actually FOUND; on a centre-crop
+        # guess a low background reading usually means the whole frame is soft,
+        # which is the opposite of what this is meant to reward.
+        if BOKEH_WEIGHT > 0.0 and c.has_face:
+            sep = max(0.0, min(1.0, 1.0 - (c.bg_sharpness / max(BOKEH_SPAN, 1e-6))))
+            base = base * (1.0 - BOKEH_WEIGHT) + base * BOKEH_WEIGHT * (0.5 + sep)
         c.score = base * gate
         if BALL_BONUS > 0.0 and c.ball_score > 0.0:
             # A bonus, never a penalty: most frames legitimately have no ball
@@ -681,6 +733,7 @@ def _metrics_to_dict(c: PhotoCandidate) -> dict:
         "has_face": c.has_face,
         "ball_score": c.ball_score,
         "eye_sharpness": c.eye_sharpness,
+        "bg_sharpness": c.bg_sharpness,
         "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
     }
 
@@ -703,6 +756,7 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
         # KeyError there would break re-ranking for anyone mid-session.
         ball_score=float(d.get("ball_score", 0.0)),
         eye_sharpness=float(d.get("eye_sharpness", 0.0)),
+        bg_sharpness=float(d.get("bg_sharpness", 0.0)),
         perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
     )
 
