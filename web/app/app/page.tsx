@@ -299,6 +299,33 @@ export default function AppPage() {
     triggerDownload(new Blob([rows.join("\n") + "\n"], { type: "text/csv" }), "clutchcull_keepers.csv");
     logExport();
   }
+  // Every cull is a labelled example: the engine ranks, then a human corrects
+  // it. Those corrections are the only ground truth this project has. Exported
+  // locally rather than logged remotely because the current usage pipeline is a
+  // public Google Form into a publicly readable sheet that is ALREADY served
+  // truncated at ~7,400 rows; a single 500 photo cull would add 500 more and
+  // break the live counters. No images, no EXIF, no filenames leave the
+  // machine unless the photographer chooses to send the file.
+  async function exportTraining() {
+    if (!results) return;
+    const metrics = metricsRef.current?.metrics;
+    if (!metrics?.length) {
+      setNote("Training data needs the per-photo metrics from this cull. Run a cull first.");
+      return;
+    }
+    const { buildTrainingCsv, summarise } = await import("@/lib/training");
+    const csv = buildTrainingCsv(results, metrics, selected, settings.preset, {
+      top_n: settings.top_n, blur: settings.blur, dupes: settings.dupes,
+    });
+    triggerDownload(new Blob([csv + "\n"], { type: "text/csv" }), "clutchcull_training.csv");
+    const s = summarise(results, selected);
+    setNote(
+      `Saved ${results.total} rows. You agreed with ${s.agreementPct}% of the picks: ` +
+      `${s.agreeKeep} kept, ${s.falsePositive} of its picks dropped, ${s.rescued} rescued. ` +
+      `The rescues are the useful part.`
+    );
+  }
+
   // Lightroom hand-off: one tiny .xmp per keeper, named to match the original
   // file. Drop them beside the photos, hit "Read Metadata from File", and the
   // picks are already starred. This is the whole point of culling RAW here.
@@ -531,6 +558,7 @@ export default function AppPage() {
                           <button disabled={!selected.size || !!busy} title="Tiny .xmp files that make your keepers 5 stars in Lightroom, Bridge or Capture One" onClick={() => { setMoreOpen(false); exportXmp(); }}><Icon n="star" size={14} />Lightroom star ratings (.xmp)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportList(); }}>Export filenames (.txt)</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); exportCSV(); }}>Export scores (.csv)</button>
+                          <button disabled={!results} title="Per-photo metrics plus which picks you agreed with. Used to train the ranker. Stays on your device." onClick={() => { setMoreOpen(false); exportTraining(); }}><Icon n="sliders" size={14} />Export training data (.csv)</button>
                           <button disabled={!!busy} onClick={() => { setMoreOpen(false); buildReport(); }}>Create cull report</button>
                           <button disabled={!selected.size} onClick={() => { setMoreOpen(false); setMode("canvas"); }}>Create Instagram canvas</button>
                         </div>
