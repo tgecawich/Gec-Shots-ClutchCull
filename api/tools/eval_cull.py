@@ -367,9 +367,95 @@ def pairs(folder: Path, comps_file: Path, preset: str):
     print("\nThose rows are the engine's actual failures. Everything else is noise.")
 
 
+
+# ── 6. learn ───────────────────────────────────────────────────────────────
+CANDIDATES = {
+    "current Balanced":   ({"sharpness": 0.45, "faces": 0.17, "detail": 0.18, "contrast": 0.10, "exposure": 0.10}, 0.0),
+    "no detail/contrast": ({"sharpness": 0.45, "faces": 0.40, "detail": 0.0, "contrast": 0.0, "exposure": 0.15}, 0.0),
+    "faces-led":          ({"sharpness": 0.15, "faces": 0.60, "detail": 0.0, "contrast": 0.0, "exposure": 0.25}, 0.0),
+    "faces-led + ball":   ({"sharpness": 0.15, "faces": 0.60, "detail": 0.0, "contrast": 0.0, "exposure": 0.25}, 12.0),
+}
+FEATURES = ["subject_sharpness", "sharpness", "frame_tiled", "detail_ratio", "contrast",
+            "brightness_mean", "exposure_balance", "face_score", "ball_score", "eye_sharpness"]
+
+
+def learn(folder: Path, comps_file: Path):
+    """What predicts the photographer's preference, and does reweighting help?
+
+    Reports head-to-head agreement, which needs no model: on each pair the
+    photographer judged, did the engine rank the same frame higher? Then checks
+    candidate weightings with repeated split-half validation, because picking
+    the best config on the same data that scores it is how people convince
+    themselves of improvements that are not there.
+    """
+    by = load(folder)
+    comps = []
+    with open(comps_file, newline="") as f:
+        for row in list(csv.reader(f))[1:]:
+            if len(row) >= 3 and row[0] in by and row[1] in by and row[2] in ("left", "right"):
+                comps.append((row[0], row[1], row[2]))
+    if len(comps) < 30:
+        sys.exit(f"only {len(comps)} usable comparisons; need ~100+")
+
+    items = sorted({x for c in comps for x in c[:2]})
+    strength = _bradley_terry(items, comps)
+    y = np.array([np.log(strength[n]) for n in items])
+    print(f"\n{len(comps)} comparisons over {len(items)} frames")
+    print("\nWhat predicts their preference:\n")
+    print(f"{'feature':<20}{'correlation':>13}")
+    rows = []
+    for f in FEATURES:
+        x = np.array([float(by[n].get(f, 0) or 0) for n in items])
+        rows.append((f, 0.0 if x.std() < 1e-9 else float(np.corrcoef(x, y)[0, 1])))
+    for f, r in sorted(rows, key=lambda t: -abs(t[1])):
+        note = "prefers MORE" if r > 0.15 else "prefers LESS" if r < -0.15 else ""
+        print(f"{f:<20}{r:>+13.3f}   {note}")
+    print("\nA feature the engine weights heavily with ~0 correlation is score")
+    print("spent on something the photographer does not care about. A feature")
+    print("with NEGATIVE correlation that the engine adds is scored backwards.")
+
+    orders = {}
+    for k, (w, b) in CANDIDATES.items():
+        be, bb = engine.EYE_WEIGHT, engine.BALL_BONUS
+        engine.EYE_WEIGHT, engine.BALL_BONUS = 0.0, b
+        try:
+            o, _ = order_of(by, list(by), weights=w, blur=0.0, dupes=0)
+        finally:
+            engine.EYE_WEIGHT, engine.BALL_BONUS = be, bb
+        orders[k] = {n: i for i, n in enumerate(o)}
+
+    def agree(er, subset):
+        ok = tot = 0
+        for a, b, w in subset:
+            if a in er and b in er:
+                tot += 1
+                ok += (er[a] < er[b]) == (w == "left")
+        return 100 * ok / max(tot, 1)
+
+    print(f"\nhead-to-head agreement (coin flip = 50%):\n")
+    for k in CANDIDATES:
+        print(f"  {k:<24}{agree(orders[k], comps):>6.1f}%   (chosen on this data, optimistic)")
+
+    rng = random.Random(5)
+    held, picks = [], {}
+    for _ in range(200):
+        c = comps[:]
+        rng.shuffle(c)
+        mid = len(c) // 2
+        best = max(CANDIDATES, key=lambda k: agree(orders[k], c[:mid]))
+        picks[best] = picks.get(best, 0) + 1
+        held.append(agree(orders[best], c[mid:]))
+    print(f"\nsplit-half validation (config picked on one half, scored on the other):")
+    print(f"  mean {np.mean(held):.1f}%  5th-95th {np.percentile(held,5):.1f}% to {np.percentile(held,95):.1f}%")
+    for k, v in sorted(picks.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:<24}won {100*v/200:>3.0f}% of splits")
+    print("\nOne shoot is one photographer on one sport. Confirm on a second")
+    print("before changing what ships.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["accuracy", "stability", "ablation", "tune", "pairs"])
+    ap.add_argument("mode", choices=["accuracy", "stability", "ablation", "tune", "pairs", "learn"])
     ap.add_argument("folder", type=Path)
     ap.add_argument("--kept", type=Path, help="text file, one kept filename per line")
     ap.add_argument("--kept-folder", type=Path, help="folder containing your keepers "
@@ -395,6 +481,10 @@ def main():
         if not a.comparisons or not a.comparisons.exists():
             sys.exit("pairs mode needs --comparisons comparisons.csv from tools/rank_pairs.html")
         pairs(a.folder, a.comparisons, a.preset)
+    elif a.mode == "learn":
+        if not a.comparisons or not a.comparisons.exists():
+            sys.exit("learn mode needs --comparisons comparisons.csv")
+        learn(a.folder, a.comparisons)
     elif a.mode == "stability":
         stability(a.folder, a.preset)
     else:
