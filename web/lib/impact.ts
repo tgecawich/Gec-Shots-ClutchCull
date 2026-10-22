@@ -47,6 +47,32 @@ export type Impact = {
 const READS = 3;
 
 export async function getImpact(): Promise<Impact | null> {
+  // Prefer the database once DATABASE_URL is set. It is aggregated server-side,
+  // so it cannot be truncated the way the published CSV was, and raw usage rows
+  // never leave the server. Falls back to the sheet while unconfigured, so this
+  // is safe to deploy before the database exists.
+  try {
+    const { dbEnabled, getTotals } = await import("./db");
+    if (dbEnabled()) {
+      const t = await getTotals(RECENT_WINDOW_DAYS);
+      if (t && t.photos > 0) {
+        return {
+          people: LEGACY_PHOTOGRAPHERS + t.people,
+          photos: t.photos,
+          exports: t.exports,
+          hours: t.minutes / 60,
+          recentPeople: t.recentPeople,
+          recentPhotos: t.recentPhotos,
+        };
+      }
+    }
+  } catch {
+    // Fall through to the sheet rather than showing an empty dashboard.
+  }
+  return getImpactFromSheet();
+}
+
+async function getImpactFromSheet(): Promise<Impact | null> {
   // Observed in production: two routes calling this function in the same minute
   // rendered 207,110 and 549,141. The endpoint intermittently serves a
   // TRUNCATED copy of the sheet, and a short file is indistinguishable from a

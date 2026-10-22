@@ -43,6 +43,44 @@ function csvCell(v: unknown): string {
  * that a photographer went and retrieved, which is precisely where the model
  * is wrong in the direction that costs a user a photograph.
  */
+export function buildTrainingRows(
+  results: CullResult,
+  metrics: Metric[],
+  selected: Set<string>
+): Array<Record<string, unknown>> {
+  const byName = new Map(metrics.map((m) => [String(m.filename), m]));
+  const keeperRank = new Map(results.keepers.map((k, i) => [k.filename, i + 1]));
+  const keeperScore = new Map(results.keepers.map((k) => [k.filename, k.score]));
+  const names = new Set<string>([
+    ...results.keepers.map((k) => k.filename),
+    ...results.rejected,
+    ...metrics.map((m) => String(m.filename)),
+  ]);
+  const out: Array<Record<string, unknown>> = [];
+  for (const name of names) {
+    const m = byName.get(name);
+    const engineKept = keeperRank.has(name);
+    const userSelected = selected.has(name);
+    // NOTE: no filename. The verdict and the numbers are the whole signal;
+    // sending names would leak what somebody shot for no modelling benefit.
+    const row: Record<string, unknown> = {
+      engine_rank: keeperRank.get(name) ?? null,
+      engine_score: keeperScore.get(name) ?? null,
+      engine_kept: engineKept,
+      user_selected: userSelected,
+      verdict: engineKept
+        ? (userSelected ? "agree_keep" : "false_positive")
+        : (userSelected ? "rescued" : "agree_drop"),
+    };
+    for (const f of NUMERIC_FIELDS) {
+      const v = m?.[f];
+      row[f] = typeof v === "number" ? v : null;
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 export function buildTrainingCsv(
   results: CullResult,
   metrics: Metric[],

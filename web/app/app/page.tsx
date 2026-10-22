@@ -7,7 +7,7 @@ import { cullUpload, scoreUpload, rankMetrics, warmApi, type CullResult, type Cu
 import { makeCanvas, CANVAS_RATIOS } from "@/lib/canvas";
 import { downloadZip, downloadZipBatched, triggerDownload } from "@/lib/zip";
 import { makeCullReport } from "@/lib/report";
-import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail } from "@/lib/tracking";
+import { trackSessionStart, trackPhotos, trackCanvas, trackExport, trackEmail, trackDecisions } from "@/lib/tracking";
 
 const PRESETS = ["Sports Action", "Portraits", "Events", "Balanced"];
 
@@ -260,10 +260,29 @@ export default function AppPage() {
   }, [settings.top_n, settings.blur, settings.dupes, settings.preset]);
 
   // Every download counts as an export; Hours Saved is added once per shoot.
+  // Send the corrections once per export. The export is the moment the
+  // photographer has finished deciding, so the selection is final; firing on
+  // every toggle would log half-made minds and flood the endpoint.
+  function logDecisions() {
+    if (!results) return;
+    const metrics = metricsRef.current?.metrics;
+    if (!metrics?.length) return;
+    import("@/lib/training").then(({ buildTrainingRows }) => {
+      trackDecisions(
+        buildTrainingRows(results, metrics, selected),
+        settings.preset,
+        `${fileKey.length}-${results.total}-${Math.round(elapsed)}`
+      );
+    }).catch(() => {});
+  }
+
   function logExport() {
     const mins = results && !minutesLogged ? hoursSaved * 60 : 0;
     trackExport(mins, email);
     if (results && !minutesLogged) setMinutesLogged(true);
+    // Corrections go with the FIRST export only: later downloads of the same
+    // cull would duplicate every row.
+    if (results && !minutesLogged) logDecisions();
   }
 
   const toggleSel = (name: string) =>
