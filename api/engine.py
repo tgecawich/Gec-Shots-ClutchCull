@@ -50,6 +50,19 @@ SHARP_GATE_SPAN = float(os.getenv("CLUTCHCULL_SHARP_GATE_SPAN", "6.0"))    # ful
 SHARP_GATE_FLOOR = float(os.getenv("CLUTCHCULL_SHARP_GATE_FLOOR", "0.3"))  # worst-case score multiplier
 SHARP_SOFT_MARK = float(os.getenv("CLUTCHCULL_SOFT_MARK", "1.8"))     # subject sharpness below blur_floor*this -> 'soft'
 SUBJECT_REJECT = float(os.getenv("CLUTCHCULL_SUBJECT_REJECT", "0.9"))  # reject when subject sharpness < blur_floor*this
+# Sharp eyes VETO a subject-blur rejection.
+#
+# Measured on a raw 86 frame baseball roll judged by the photographer: the gate
+# deleted his 4th and 6th favourite frames. Both were swings. The bat and arms
+# are motion blurred, so sharpness averaged over the whole body read 28 and 29
+# against a floor of 36, but eye sharpness was 3,523 and 6,093, the highest in
+# the entire roll. Panning a long lens produces exactly this: a sharp face and a
+# moving body. That is not a soft photo, it is the photo.
+#
+# So if the eyes are clearly sharp, the frame cannot be rejected for a soft
+# body. The floor is deliberately well above the blur threshold: this rescues
+# frames with genuinely crisp eyes, not ones that merely squeak past.
+EYE_RESCUE = float(os.getenv("CLUTCHCULL_EYE_RESCUE", "8.0"))  # eyes sharper than blur_floor*this -> never reject
 # Faces are large features, so detection stays accurate on a downscaled copy,
 # and YuNet cost grows fast with resolution (~3x from 800px to 1200px). We
 # detect small, then scale boxes back up; sharpness still uses full metrics res.
@@ -856,6 +869,9 @@ def rank_metrics(metrics, blur_threshold=40.0, duplicate_threshold=2, top_n=35, 
             c.has_face
             and SUBJECT_REJECT > 0
             and _effective_subject_sharpness(c) < blur_threshold * SUBJECT_REJECT
+            # ...unless the eyes are sharp, which means we measured motion in the
+            # body rather than a missed focus.
+            and not (EYE_RESCUE > 0 and c.eye_sharpness > blur_threshold * EYE_RESCUE)
         )
         if c.sharpness < blur_threshold or subject_bad:
             blurry.append(c)
