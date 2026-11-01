@@ -149,7 +149,24 @@ BOKEH_SPAN = float(os.getenv("CLUTCHCULL_BOKEH_SPAN", "400.0"))
 # while a fifth (indoor gymnastics, almost nothing usable before editing) moved
 # it DOWN to 57.3% and was excluded. More data helps only when the labels answer
 # the same question; see the note in tools/cross_shoot.py.
-RANKER = os.getenv("CLUTCHCULL_RANKER", "v2").strip().lower()
+# DEFAULT IS "legacy", deliberately, despite v2 being the better-validated
+# ranker on every metric measured here. The reason is that those metrics all
+# measure ORDERING, and the only real-world evidence available measures
+# SELECTION, which is what a user actually experiences.
+#
+# The photographer ran a real cull on 99 frames with the legacy ranker and
+# would have kept 34 of the 35 it returned, against a base rate of roughly 40
+# keepers in 99. So legacy's selection is close to perfect on that shoot.
+#
+# v2 keeps only 8 of those same 35. Every one of its picks clears the gate, so
+# nobody gets a blurry frame, but 27 of 35 frames change and there is no
+# measurement of whether its 35 are as keepable as legacy's. Ordering better
+# and selecting better are not the same claim, and shipping the second on
+# evidence for the first would be guessing with 2,000 people's shoots.
+#
+# Set CLUTCHCULL_RANKER=v2 on the host to enable it, no deploy required. The
+# honest test is one real cull compared against the legacy result.
+RANKER = os.getenv("CLUTCHCULL_RANKER", "legacy").strip().lower()
 # Signs are the content here. separation POSITIVE (melted background behind a
 # clear subject) and subject_area NEGATIVE are the whole finding: size only
 # counts as a correction to face visibility, not as a good thing by itself.

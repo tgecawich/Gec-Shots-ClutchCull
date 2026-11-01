@@ -170,7 +170,11 @@ def test_v2_ranker_still_puts_sharp_above_soft():
     falls back to legacy and this would pass without testing anything. That is
     exactly why the older two-frame sharp-vs-blurred test does not cover it.
     """
-    assert engine.RANKER == "v2", "default ranker changed; update this test"
+    # Force v2 rather than asserting it is the default. v2 ships default-OFF
+    # (the live ranker is validated on selection, v2 only on ordering), but its
+    # behaviour must stay correct for whenever that flips, so the test sets the
+    # mode it is testing instead of depending on a product decision.
+    saved = engine.RANKER
     with tempfile.TemporaryDirectory() as td:
         d = Path(td)
         paths, sharp_names = [], set()
@@ -181,10 +185,14 @@ def test_v2_ranker_still_puts_sharp_above_soft():
             sharp_names.add(p.name)
             paths.append(_save(base.filter(ImageFilter.GaussianBlur(7)), d,
                                f"soft{s}.jpg"))
-        metrics = engine.compute_metrics_batch(paths)
-        assert len(metrics) >= engine.LEARNED_MIN_BATCH, "batch too small to test v2"
-        result = engine.rank_metrics(metrics, blur_threshold=40.0, top_n=12,
-                                     duplicate_threshold=0)
+        try:
+            engine.RANKER = "v2"
+            metrics = engine.compute_metrics_batch(paths)
+            assert len(metrics) >= engine.LEARNED_MIN_BATCH, "batch too small for v2"
+            result = engine.rank_metrics(metrics, blur_threshold=40.0, top_n=12,
+                                         duplicate_threshold=0)
+        finally:
+            engine.RANKER = saved
         order = [k["filename"] for k in result["keepers"]]
         rejected = set(result["rejected"])
         # No sharp frame may be discarded.
@@ -217,9 +225,19 @@ def test_ranker_can_be_reverted_without_a_deploy():
             engine.RANKER = saved
         assert sorted(v2) == sorted(lg), "a mode changed WHICH frames survive, not just order"
         # Scores must actually differ, otherwise the flag is not wired up and
-        # the rollback would be a no-op that looks like it worked.
-        assert engine._learned_scores(
-            [engine._dict_to_candidate(m) for m in metrics])[0] is not None
+        # the rollback would be a no-op that looks like it worked. Needs RANKER
+        # forced on, because _learned_scores returns None when it is off and
+        # that None would read as "wired up correctly" when it means the
+        # opposite.
+        saved2 = engine.RANKER
+        try:
+            engine.RANKER = "v2"
+            scores, parts = engine._learned_scores(
+                [engine._dict_to_candidate(m) for m in metrics])
+        finally:
+            engine.RANKER = saved2
+        assert scores is not None and parts is not None
+        assert len(set(np.round(scores, 6))) > 1, "learned scores are all identical"
 
 
 def test_breakdown_survives_a_change_of_feature_set():
