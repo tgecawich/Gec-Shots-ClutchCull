@@ -164,9 +164,23 @@ BOKEH_SPAN = float(os.getenv("CLUTCHCULL_BOKEH_SPAN", "400.0"))
 # and selecting better are not the same claim, and shipping the second on
 # evidence for the first would be guessing with 2,000 people's shoots.
 #
-# Set CLUTCHCULL_RANKER=v2 on the host to enable it, no deploy required. The
-# honest test is one real cull compared against the legacy result.
-RANKER = os.getenv("CLUTCHCULL_RANKER", "legacy").strip().lower()
+# RESOLVED, and v2 is now the default. The blind A/B was run: both ranker's
+# disagreement sets (28 frames each) were exported to folders labelled A and B
+# by a coin flip the photographer could not see, and he was asked how many of
+# each he would post rather than merely keep.
+#
+# His answer: "I'd save almost all of them from both, but A had stronger photos
+# and more overall that I would actually post rather than just keep." A was v2.
+#
+# That phrasing is the result, more than a count would have been. "Almost all
+# from both" is the GATE working, which is why the legacy ranker returned 34
+# keepers out of 35. "More I would actually post" is the RANKING working, and
+# that was a coin flip before today. The specific worry that held this back,
+# that v2 might order better while selecting worse, is the thing the test
+# contradicted.
+#
+# Set CLUTCHCULL_RANKER=legacy on the host to revert, no deploy required.
+RANKER = os.getenv("CLUTCHCULL_RANKER", "v2").strip().lower()
 # Signs are the content here. separation POSITIVE (melted background behind a
 # clear subject) and subject_area NEGATIVE are the whole finding: size only
 # counts as a correction to face visibility, not as a good thing by itself.
