@@ -58,6 +58,8 @@ SHOOTS = [
      HOME / "Downloads/comparisons-baseball-keepers.csv"),
     ("soccer", HOME / "Desktop/JUDGE-soccer",
      HOME / "Downloads/comparisons-soccer.csv"),
+    ("baseball-0415", HOME / "Desktop/JUDGE-04-15",
+     HOME / "Downloads/comparisons-04-15.csv"),
 ]
 
 # EXCLUDED, deliberately, and the reason is worth more than the data was.

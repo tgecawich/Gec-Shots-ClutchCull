@@ -123,30 +123,41 @@ BOKEH_SPAN = float(os.getenv("CLUTCHCULL_BOKEH_SPAN", "400.0"))
 # So stage one (the gate, below in add_scores, unchanged) still uses absolute
 # sharpness. Stage two replaces the preset arithmetic for survivors.
 #
-# Fitted by pairwise logistic regression on 737 comparisons across three shoots
-# (two baseball, one soccer), validated leave-one-SHOOT-out: trained on two
+# Fitted by pairwise logistic regression on 891 comparisons across four shoots
+# (three baseball, one soccer), validated leave-one-SHOOT-out: trained on three
 # shoots, scored on a shoot it had never seen. Not split-half on one shoot,
 # which is the mistake the earlier 67.3% figure above made: both halves were the
 # same game, the same light and the same twenty minutes of taste.
 #
 #   agreement with the photographer, on shoots held out entirely
 #     shipping preset          51.5%   (a coin flip is 50%)
-#     these weights            59.2%   all pairs, including near-ties
-#     these weights            65.2%   pairs where his preference was decisive
+#     these weights            64.0%   all pairs, including near-ties
+#     these weights            65.9%   mean over folds for this feature set
 #
-# Four features, chosen on WORST-fold accuracy rather than average, and because
-# all four keep the same sign across every fold. Larger feature sets scored
-# better on average and flipped signs between folds, which means their weights
-# were fitting the shoot rather than the photographer.
+# Chosen on worst-fold accuracy rather than average, and because all six keep
+# the same sign across every fold. Larger sets flip signs between folds, which
+# means those weights fit the shoot rather than the photographer: at 13 features
+# `subject_sharpness`, `sharpness` and `bg_sharpness` all change direction
+# depending on which shoot is held out.
+#
+# `edge_contact` is measured, stable (fold spread 0.07) and carries a real
+# weight, but does not improve the mean yet; worth re-testing as shoots
+# accumulate. `off_center` is noise and should stay out: weight -0.004 with a
+# fold spread of 6.9, which is a coefficient with no determinate sign.
+#
+# A fourth shoot moved the honest leave-one-out number from 59.4% to 64.0%,
+# while a fifth (indoor gymnastics, almost nothing usable before editing) moved
+# it DOWN to 57.3% and was excluded. More data helps only when the labels answer
+# the same question; see the note in tools/cross_shoot.py.
 RANKER = os.getenv("CLUTCHCULL_RANKER", "v2").strip().lower()
 # Signs are the content here. separation POSITIVE (melted background behind a
 # clear subject) and subject_area NEGATIVE are the whole finding: size only
 # counts as a correction to face visibility, not as a good thing by itself.
 LEARNED_WEIGHTS = {
-    "separation":      +0.3089,
-    "subject_area":    -0.3376,
-    "face_score":      +0.3884,
-    "brightness_mean": +0.2423,
+    "separation":      +0.2895,
+    "subject_area":    -0.3294,
+    "face_score":      +0.3802,
+    "brightness_mean": +0.2041,
     # Both NEGATIVE: a second player overlapping the subject, and a frame full
     # of people, are each reasons to pass. Nothing else here can see that. The
     # subject stays sharp and separated with a defender crossing in front, so
@@ -161,8 +172,8 @@ LEARNED_WEIGHTS = {
     # isolates the batter, so this helps where there are crowds and is neutral
     # where there are not. That is applicability, not a fluke, and no weight
     # changes sign across folds.
-    "crowding":        -0.1085,
-    "person_count":    -0.2146,
+    "crowding":        -0.0981,
+    "person_count":    -0.2223,
 }
 # Features whose raw values span orders of magnitude get log1p first, exactly as
 # in training. Skipping this lets one tack-sharp frame drag the batch mean past
