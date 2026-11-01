@@ -13,9 +13,21 @@ toward the engine's own opinion of what is interesting. The point is to measure
 the engine, not to hand it a flattering subset.
 
 SIZE IS 140 FRAMES, not the whole shoot. Pair COVERAGE is what makes a ranking
-trustworthy, not frame count. 250 comparisons over 800 frames is 0.6 per frame
-and orders nothing; over 140 frames it is 3.6 per frame, which is what produced
-usable results on the shoots already judged.
+trustworthy, not frame count. 150 comparisons over 800 frames is 0.4 per frame
+and orders nothing; over 140 frames it is 2.1 per frame, which is enough.
+
+JUDGE ~150 PAIRS PER SHOOT, not 250. Measured by subsampling the comparisons
+already collected and scoring on a held-out shoot:
+
+      40 comparisons  61.6%        160 comparisons  63.6%
+      80 comparisons  62.8%        250 comparisons  64.5%
+     120 comparisons  63.2%        291 comparisons  64.9%
+
+The curve flattens after about 80. Going from 80 to 291 costs nine more
+minutes and buys 2.1 points, while an entirely NEW shoot buys 4.0. So minutes
+spent deepening one shoot are worth less than half what the same minutes buy
+on another shoot, and the right move is more shoots judged more shallowly.
+150 captures roughly 97% of what a single shoot has to offer.
 
     python tools/prep_judge_batch.py /Volumes/Untitled/DCIM --out ~/Desktop
     python tools/prep_judge_batch.py <card> --out ~/Desktop --shoots 4 --n 140
@@ -116,8 +128,11 @@ def main() -> None:
         print(f"     wrote {written} frames, {size:.0f} MB")
 
     print("\nFor each folder, in tools/rank_pairs.html:")
-    print("  Pick photo folder -> judge ~250 pairs -> Export")
+    print("  Pick photo folder -> judge ~150 pairs -> Export")
     print("  Save as comparisons-<tag>.csv so they do not overwrite each other.")
+    print("\n150, not 250: measured, the per-shoot curve flattens after ~80, and")
+    print("the 9 minutes it takes to go from 80 to 290 buys 2.1 points where a")
+    print("whole new shoot buys 4.0. More shoots, judged shallower, wins.")
     print("\nThen register them in tools/cross_shoot.py SHOOTS and run:")
     print("  python tools/cross_shoot.py --search")
 
