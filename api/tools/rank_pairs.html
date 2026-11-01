@@ -58,6 +58,11 @@
   <button id="dl">Export comparisons.csv</button>
   <button id="reset">Reset</button>
   <span id="meta">no folder loaded</span>
+  <!-- Visible build marker. Browsers cache file:// pages, so an edit to this
+       file can silently fail to take effect; two shoots were judged on a stale
+       copy whose repeat pairs were unreachable, and nothing on screen said so.
+       If this does not match the BUILD constant in the script, hard reload. -->
+  <span id="build" style="margin-left:auto;opacity:.45;font-size:.72rem"></span>
 </header>
 <div id="bar"><div id="fill"></div></div>
 
@@ -80,7 +85,14 @@
 
 <script>
 (() => {
-  const KEY = "cc_pairs_v1";
+  // Shown in the header so a stale cached copy is visible instead of silent.
+  const BUILD = "2026-10-31 session-repeats";
+  // Bumped from v1 DELIBERATELY. Saved state stores `at`, an index into the
+  // generated pair sequence, and this build changed where repeat pairs are
+  // inserted. Resuming an old session would therefore point `at` into a
+  // different ordering, judging some pairs twice and skipping others. Changing
+  // the key makes stale state unreadable rather than subtly wrong.
+  const KEY = "cc_pairs_v2";
   // ~5 comparisons per photo orders a shoot well without being a chore.
   const PER_PHOTO = 5;
   // Fraction of pairs shown a SECOND time, far away and left/right swapped.
@@ -104,6 +116,7 @@
 
   const $ = id => document.getElementById(id);
   const save = () => localStorage.setItem(KEY, JSON.stringify({ results, at }));
+  $("build").textContent = BUILD;
 
   // Deterministic PRNG, seeded from the file list.
   //

@@ -154,10 +154,25 @@ RANKER = os.getenv("CLUTCHCULL_RANKER", "v2").strip().lower()
 # clear subject) and subject_area NEGATIVE are the whole finding: size only
 # counts as a correction to face visibility, not as a good thing by itself.
 LEARNED_WEIGHTS = {
-    "separation":      +0.2895,
-    "subject_area":    -0.3294,
-    "face_score":      +0.3802,
-    "brightness_mean": +0.2041,
+    # `detail_ratio` is the LARGEST weight and it is negative, which is the
+    # whole two-stage finding in one line: whole-frame edge density is a direct
+    # measure of background clutter, and the shipping preset ADDED it at +0.18.
+    # Very stable too, fold spread 0.09.
+    #
+    # It also largely absorbs `separation`, which fell from +0.29 to +0.08 once
+    # detail was in the model. Separation was added to express "melted
+    # background behind a clear subject"; detail_ratio turns out to measure the
+    # same thing better. Separation is kept because it still carries weight and
+    # is the version that survives a busy subject, but the credit belongs to
+    # detail.
+    "detail_ratio":      -0.4106,
+    "face_score":        +0.3880,
+    "subject_area":      -0.2949,
+    "subject_sharpness": +0.1703,
+    "separation":        +0.0831,
+    # Near-noise: weight 0.06 with a fold spread of 0.76. Retained only because
+    # it never changes sign, and dropping it did not improve any fold.
+    "exposure_balance":  +0.0600,
     # Both NEGATIVE: a second player overlapping the subject, and a frame full
     # of people, are each reasons to pass. Nothing else here can see that. The
     # subject stays sharp and separated with a defender crossing in front, so
@@ -166,19 +181,35 @@ LEARNED_WEIGHTS = {
     # Added after pose estimation failed. Pose asked what the body was doing;
     # this asks whether the photograph is intact.
     #
-    # The gain is concentrated where it should be, which is why it is trusted:
-    # soccer +5.5 points (95% CI +1.7 to +9.3, p=0.004 by paired bootstrap),
-    # baseball +0.7 and +0.0. Soccer puts 22 players on a pitch and baseball
-    # isolates the batter, so this helps where there are crowds and is neutral
-    # where there are not. That is applicability, not a fluke, and no weight
-    # changes sign across folds.
-    "crowding":        -0.0981,
-    "person_count":    -0.2223,
 }
-# Features whose raw values span orders of magnitude get log1p first, exactly as
-# in training. Skipping this lets one tack-sharp frame drag the batch mean past
-# every other frame, and z-scoring cannot undo that.
-LEARNED_LOG = {"separation"}
+
+# Which features are log1p'd before standardising. MUST match the list in
+# tools/cross_shoot.py zscore(), because these weights were fitted against that
+# transform; applying a different one here would silently mis-scale the inputs
+# and the ranking would be wrong in a way nothing would report. Laplacian
+# variance spans orders of magnitude, so without the log a single tack-sharp
+# frame drags the batch mean past every other frame and z-scoring cannot undo
+# it. Ratios already bounded near 0-1 (detail_ratio, face_score, subject_area,
+# exposure_balance) are left alone.
+LEARNED_LOG = {"sharpness", "subject_sharpness", "frame_tiled", "eye_sharpness",
+               "bg_sharpness", "separation"}
+
+# `crowding` and `person_count` were shipped at four shoots and are now OUT.
+# They were not wrong: on those four they added 1.5 points and soccer gained
+# 5.5 (p=0.004). But the fifth shoot disagreed with them specifically, and the
+# split is clean enough to act on. Adding that shoot changed the other folds by
+#   with crowding/person_count   -1.2 on average
+#   with detail/subject_sharp    +1.1 on average
+# so the shoot was fine and the feature set was the problem. At five shoots
+# core+detail wins on worst fold (61.1% vs 60.2%), mean (65.0% vs 64.4%) and
+# stability (0/6 sign flips vs 0/6, but no fold-level conflict), which is three
+# independent criteria agreeing rather than one number moving.
+#
+# Both are still COMPUTED and recorded, so they cost nothing to re-test. The
+# honest position is that crowding helps on crowded sports and that five shoots
+# is not enough to tell whether it generalises; a per-sport or per-preset model
+# is the obvious thing to try once there are more.
+
 # Below this many frames, batch statistics are meaningless and the learned
 # ranker falls back to the legacy score. Mirrors _normalize's own threshold:
 # percentiles and standard deviations both need samples.
@@ -799,6 +830,27 @@ _BADGE = {"sharpness": "Sharp subject", "faces": "Clear subject", "detail": "Ric
           "separation": "Clean background", "framing": "Well framed",
           "light": "Good light"}
 
+# Learned feature name -> the key used in score_breakdown, which _BADGE then
+# turns into words. Two layers because a photographer should read "Clean
+# background", not "detail_ratio". A feature missing from here falls through to
+# its own name rather than disappearing, so adding a weight cannot silently
+# drop a component from the breakdown.
+_LEARNED_BADGE = {
+    # Negative weight, so a HIGH contribution means LOW whole-frame detail,
+    # which is a clean uncluttered background. The badge describes what the
+    # photographer sees, not the sign of the coefficient.
+    "detail_ratio": "separation",
+    "separation": "separation",
+    "face_score": "faces",
+    "subject_area": "framing",
+    "subject_sharpness": "sharpness",
+    "exposure_balance": "exposure",
+    "brightness_mean": "light",
+    "crowding": "framing",
+    "person_count": "framing",
+    "edge_contact": "framing",
+}
+
 
 def _unit(contribution: float) -> float:
     """A weighted contribution (z-units, signed) onto 0-1 for display.
@@ -909,11 +961,14 @@ def add_scores(cands, weights, blur_threshold=40.0):
             # Breakdown drives the badge, so it has to describe what actually
             # won. Reporting the legacy components here would caption a photo
             # with a reason that no longer had anything to do with its rank.
+            #
+            # Built from LEARNED_WEIGHTS rather than a fixed list of keys. The
+            # fixed version raised KeyError the first time the feature set
+            # changed, which means every future change to the weights would
+            # have been a crash waiting in production.
             c.score_breakdown = {
-                "separation": _unit(learned_parts[i]["separation"]),
-                "framing": _unit(learned_parts[i]["subject_area"]),
-                "faces": _unit(learned_parts[i]["face_score"]),
-                "light": _unit(learned_parts[i]["brightness_mean"]),
+                _LEARNED_BADGE.get(f, f): _unit(v)
+                for f, v in learned_parts[i].items()
             }
         c.score = base * gate
         if BALL_BONUS > 0.0 and c.ball_score > 0.0:

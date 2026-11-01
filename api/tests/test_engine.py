@@ -222,6 +222,52 @@ def test_ranker_can_be_reverted_without_a_deploy():
             [engine._dict_to_candidate(m) for m in metrics])[0] is not None
 
 
+def test_breakdown_survives_a_change_of_feature_set():
+    """Pins a crash that happened for real.
+
+    score_breakdown was built from a hardcoded list of four feature names. The
+    first time LEARNED_WEIGHTS changed, add_scores raised KeyError on the whole
+    batch, which would have been a production outage triggered by nothing but a
+    weight update. It is now derived from the weights themselves.
+
+    Driven by mutating LEARNED_WEIGHTS to a deliberately odd set, because
+    asserting on today's set would pass for the wrong reason."""
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        paths = [_save(_textured(seed=s + 60), d, f"f{s}.jpg") for s in range(10)]
+        metrics = engine.compute_metrics_batch(paths)
+        saved = engine.LEARNED_WEIGHTS
+        try:
+            # Includes a feature with no _LEARNED_BADGE entry on purpose: an
+            # unmapped name must fall through to itself, not vanish or raise.
+            engine.LEARNED_WEIGHTS = {"contrast": +0.5, "subject_area": -0.3}
+            res = engine.rank_metrics(metrics, blur_threshold=0.0, top_n=10,
+                                      duplicate_threshold=0)
+        finally:
+            engine.LEARNED_WEIGHTS = saved
+        assert len(res["keepers"]) == 10, res
+        for k in res["keepers"]:
+            assert k["breakdown"], f"empty breakdown for {k['filename']}"
+            assert k["badge"], f"no badge for {k['filename']}"
+
+
+def test_learned_log_matches_the_training_transform():
+    """The weights were fitted against tools/cross_shoot.py's log1p list. If the
+    two ever diverge, inputs are mis-scaled and the ranking is wrong with
+    nothing reporting an error. cross_shoot now imports this set; this test
+    fails loudly if someone re-introduces a local copy."""
+    src = (Path(__file__).resolve().parent.parent
+           / "tools" / "cross_shoot.py").read_text()
+    assert "engine.LEARNED_LOG" in src, (
+        "cross_shoot.py must use engine.LEARNED_LOG, not its own list")
+    # Everything log-transformed must be a raw variance-like quantity. A ratio
+    # already bounded near 0-1 would be squashed to near-zero spread.
+    for f in engine.LEARNED_LOG:
+        assert f not in ("detail_ratio", "face_score", "subject_area",
+                         "exposure_balance", "off_center", "edge_contact"), (
+            f"{f} is already bounded; log1p would destroy its spread")
+
+
 def test_new_features_are_bounded_and_present():
     """subject_area and separation were added because the photographer's own
     description of a good frame ('blurry background, clear subject, large in

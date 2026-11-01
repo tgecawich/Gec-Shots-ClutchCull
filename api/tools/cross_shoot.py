@@ -60,6 +60,8 @@ SHOOTS = [
      HOME / "Downloads/comparisons-soccer.csv"),
     ("baseball-0415", HOME / "Desktop/JUDGE-04-15",
      HOME / "Downloads/comparisons-04-15.csv"),
+    ("jun26", HOME / "Desktop/JUDGE-06-26",
+     HOME / "Downloads/comparisons-06-26.csv"),
 ]
 
 # EXCLUDED, deliberately, and the reason is worth more than the data was.
@@ -166,9 +168,14 @@ def zscore(by_name: dict, names: list[str], feats: list[str]) -> dict:
     # log1p the heavy-tailed sharpness-like features first. Laplacian variance
     # spans orders of magnitude, so one tack-sharp frame otherwise drags the
     # mean past every other frame and z-scoring cannot undo that.
+    #
+    # Imported from the engine rather than re-listed here, deliberately. The two
+    # lists were duplicated once and drifted: this one log1p'd
+    # subject_sharpness while the engine's did not, so shipping any feature set
+    # containing it would have mis-scaled that input with nothing reporting an
+    # error. The ranking would simply have been wrong. One definition now.
     for i, f in enumerate(feats):
-        if f in ("sharpness", "subject_sharpness", "frame_tiled",
-                 "eye_sharpness", "bg_sharpness", "separation"):
+        if f in engine.LEARNED_LOG:
             raw[:, i] = np.log1p(np.maximum(raw[:, i], 0.0))
     mu, sd = raw.mean(0), raw.std(0)
     # A constant feature divides by 1 instead of ~0. Its numerator is already
