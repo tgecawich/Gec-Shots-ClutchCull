@@ -85,6 +85,17 @@ FEATURE_SETS = {
     "core+detail": ["separation", "subject_area", "face_score", "exposure_balance",
                     "subject_sharpness", "detail_ratio"],
     "bright": ["separation", "subject_area", "face_score", "brightness_mean"],
+    # Composition features, added after pose estimation failed. Pose asked "what
+    # is the body doing"; these ask "is the photograph intact" - clipped by the
+    # frame, blocked by another player, badly placed. All free from boxes the
+    # engine already computes.
+    "bright+edge": ["separation", "subject_area", "face_score", "brightness_mean",
+                    "edge_contact"],
+    "bright+crowd": ["separation", "subject_area", "face_score", "brightness_mean",
+                     "crowding", "person_count"],
+    "bright+comp": ["separation", "subject_area", "face_score", "brightness_mean",
+                    "edge_contact", "crowding", "person_count", "off_center"],
+    "comp alone": ["edge_contact", "crowding", "person_count", "off_center"],
 }
 
 
