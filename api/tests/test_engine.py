@@ -155,6 +155,111 @@ def test_unreadable_files_are_counted_not_fatal():
         assert [k["filename"] for k in result["keepers"]] == ["ok.jpg"]
 
 
+def test_v2_ranker_still_puts_sharp_above_soft():
+    """The regression the two-stage change could plausibly cause.
+
+    Stage two dropped sharpness from the RANKING entirely, on the evidence that
+    among frames which already passed the gate it predicts the photographer's
+    preference slightly negatively. The risk that creates is specific: a soft
+    frame is now held back only by the multiplicative gate, so if that gate were
+    ever loosened, a blurry photo with a clean background could outrank a sharp
+    one. Handing a photographer a blurry keeper is the single worst thing this
+    app can do, so it gets a test rather than an argument.
+
+    Needs more than LEARNED_MIN_BATCH frames or the learned ranker silently
+    falls back to legacy and this would pass without testing anything. That is
+    exactly why the older two-frame sharp-vs-blurred test does not cover it.
+    """
+    assert engine.RANKER == "v2", "default ranker changed; update this test"
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        paths, sharp_names = [], set()
+        for s in range(6):
+            base = _textured(seed=s + 20)
+            p = _save(base, d, f"sharp{s}.jpg")
+            paths.append(p)
+            sharp_names.add(p.name)
+            paths.append(_save(base.filter(ImageFilter.GaussianBlur(7)), d,
+                               f"soft{s}.jpg"))
+        metrics = engine.compute_metrics_batch(paths)
+        assert len(metrics) >= engine.LEARNED_MIN_BATCH, "batch too small to test v2"
+        result = engine.rank_metrics(metrics, blur_threshold=40.0, top_n=12,
+                                     duplicate_threshold=0)
+        order = [k["filename"] for k in result["keepers"]]
+        rejected = set(result["rejected"])
+        # No sharp frame may be discarded.
+        assert not (sharp_names & rejected), f"gate deleted sharp frames: {sharp_names & rejected}"
+        # Every surviving sharp frame must outrank every surviving soft one.
+        sharp_ranks = [i for i, n in enumerate(order) if n in sharp_names]
+        soft_ranks = [i for i, n in enumerate(order) if n not in sharp_names]
+        if sharp_ranks and soft_ranks:
+            assert max(sharp_ranks) < min(soft_ranks), (
+                f"a soft frame outranked a sharp one under v2: {order}")
+
+
+def test_ranker_can_be_reverted_without_a_deploy():
+    """CLUTCHCULL_RANKER=legacy must fully restore the old ordering, because
+    that env var is the entire rollback plan if the learned weights turn out to
+    suit one photographer rather than photographers."""
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        paths = [_save(_textured(seed=s + 40), d, f"f{s}.jpg") for s in range(10)]
+        metrics = engine.compute_metrics_batch(paths)
+        saved = engine.RANKER
+        try:
+            engine.RANKER = "v2"
+            v2 = [k["filename"] for k in engine.rank_metrics(
+                metrics, blur_threshold=0.0, top_n=10, duplicate_threshold=0)["keepers"]]
+            engine.RANKER = "legacy"
+            lg = [k["filename"] for k in engine.rank_metrics(
+                metrics, blur_threshold=0.0, top_n=10, duplicate_threshold=0)["keepers"]]
+        finally:
+            engine.RANKER = saved
+        assert sorted(v2) == sorted(lg), "a mode changed WHICH frames survive, not just order"
+        # Scores must actually differ, otherwise the flag is not wired up and
+        # the rollback would be a no-op that looks like it worked.
+        assert engine._learned_scores(
+            [engine._dict_to_candidate(m) for m in metrics])[0] is not None
+
+
+def test_new_features_are_bounded_and_present():
+    """subject_area and separation were added because the photographer's own
+    description of a good frame ('blurry background, clear subject, large in
+    frame') was not measurable at all: the subject box was computed and then
+    discarded. These pin the two invariants worth pinning."""
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        metrics = engine.compute_metrics_batch([
+            _save(_textured(seed=7), d, "a.jpg"),
+            _save(_textured(seed=7).filter(ImageFilter.GaussianBlur(6)), d, "b.jpg"),
+        ])
+        for m in metrics:
+            assert "subject_area" in m and "separation" in m, f"missing on {m['filename']}"
+            # A fraction of the frame cannot leave 0-1 no matter where
+            # _pick_subject puts the box, including its out-of-frame fallbacks.
+            assert 0.0 <= m["subject_area"] <= 1.0, m["subject_area"]
+            # The +1 denominator in `separation` exists so a perfectly smooth
+            # background cannot divide by zero. Also checks it is not NaN.
+            assert m["separation"] >= 0.0 and m["separation"] == m["separation"]
+
+
+def test_cached_metrics_without_new_fields_still_rank():
+    """The /rank endpoint replays metrics the BROWSER stored, so a session that
+    began before these fields existed must not KeyError. This is the exact
+    class of break that would hit users mid-cull rather than on deploy."""
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        metrics = engine.compute_metrics_batch([
+            _save(_textured(seed=11), d, "a.jpg"),
+            _save(_textured(seed=12), d, "b.jpg"),
+        ])
+        stale = [{k: v for k, v in m.items()
+                  if k not in ("subject_area", "separation")} for m in metrics]
+        result = engine.rank_metrics(stale, blur_threshold=0.0, top_n=5,
+                                     duplicate_threshold=0)
+        assert len(result["keepers"]) == 2, result
+
+
 # --- plain-python runner ----------------------------------------------------
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

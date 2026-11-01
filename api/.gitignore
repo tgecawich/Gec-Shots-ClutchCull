@@ -1,3 +1,6 @@
 models/
 __pycache__/
 *.pyc
+# Generated pose feature cache. Derived data, regenerable with
+# tools/pose_features.py --extract, and only noise in a diff.
+tools/_pose_cache/

@@ -105,6 +105,58 @@ BOKEH_WEIGHT = float(os.getenv("CLUTCHCULL_BOKEH_WEIGHT", "0.0"))
 # Background sharpness at or below this reads as fully separated; at
 # BOKEH_FULL * BOKEH_SPAN and above it reads as a busy, in-focus background.
 BOKEH_SPAN = float(os.getenv("CLUTCHCULL_BOKEH_SPAN", "400.0"))
+
+# --- two-stage ranking ----------------------------------------------------
+# RANKER: "v2" uses weights FITTED to pairwise judgements; "legacy" is the
+# hand-tuned preset arithmetic. Set CLUTCHCULL_RANKER=legacy to revert
+# instantly without a deploy.
+#
+# Why two stages at all. Throwing out unusable frames and ranking the ones that
+# survive are different problems, and one formula was doing both. Sharpness
+# decides the first. Among frames that already passed the gate it decides almost
+# nothing, because everything left is already sharp. Measured on three judged
+# shoots, whole-frame `sharpness` correlates -0.25 and `detail_ratio` -0.32 with
+# what the photographer preferred, yet the shipping preset ADDS both, weighting
+# sharpness at 0.45. They are not mis-weighted, they are scored backwards: a
+# sharp and detailed frame usually means a cluttered in-focus background.
+#
+# So stage one (the gate, below in add_scores, unchanged) still uses absolute
+# sharpness. Stage two replaces the preset arithmetic for survivors.
+#
+# Fitted by pairwise logistic regression on 737 comparisons across three shoots
+# (two baseball, one soccer), validated leave-one-SHOOT-out: trained on two
+# shoots, scored on a shoot it had never seen. Not split-half on one shoot,
+# which is the mistake the earlier 67.3% figure above made: both halves were the
+# same game, the same light and the same twenty minutes of taste.
+#
+#   agreement with the photographer, on shoots held out entirely
+#     shipping preset          51.5%   (a coin flip is 50%)
+#     these weights            59.2%   all pairs, including near-ties
+#     these weights            65.2%   pairs where his preference was decisive
+#
+# Four features, chosen on WORST-fold accuracy rather than average, and because
+# all four keep the same sign across every fold. Larger feature sets scored
+# better on average and flipped signs between folds, which means their weights
+# were fitting the shoot rather than the photographer.
+RANKER = os.getenv("CLUTCHCULL_RANKER", "v2").strip().lower()
+# Signs are the content here. separation POSITIVE (melted background behind a
+# clear subject) and subject_area NEGATIVE are the whole finding: size only
+# counts as a correction to face visibility, not as a good thing by itself.
+LEARNED_WEIGHTS = {
+    "separation":      +0.3790,
+    "subject_area":    -0.3064,
+    "face_score":      +0.4159,
+    "brightness_mean": +0.2442,
+}
+# Features whose raw values span orders of magnitude get log1p first, exactly as
+# in training. Skipping this lets one tack-sharp frame drag the batch mean past
+# every other frame, and z-scoring cannot undo that.
+LEARNED_LOG = {"separation"}
+# Below this many frames, batch statistics are meaningless and the learned
+# ranker falls back to the legacy score. Mirrors _normalize's own threshold:
+# percentiles and standard deviations both need samples.
+LEARNED_MIN_BATCH = int(os.getenv("CLUTCHCULL_RANKER_MIN_BATCH", "8"))
+
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 CANVAS_MAX_LONG_EDGE = 2880
 
@@ -167,6 +219,12 @@ class PhotoCandidate:
     ball_score: float = 0.0    # sports object present, weighted by nearness to subject
     eye_sharpness: float = 0.0 # absolute sharpness measured at the EYES
     bg_sharpness: float = 0.0  # sharpness of the frame EXCLUDING the subject
+    # The subject box was already being computed and then discarded. Both of
+    # these are free (no extra image work) and both describe the thing the
+    # photographer actually asked for: "a blurry background, clear subject, and
+    # a large subject taking up a lot of it."
+    subject_area: float = 0.0  # subject box as a FRACTION of the frame, 0-1
+    separation: float = 0.0    # subject sharpness / background sharpness
     perceptual_hash: imagehash.ImageHash | None = None
     score: float = 0.0
     score_breakdown: dict = field(default_factory=dict)
@@ -599,11 +657,22 @@ def compute_metrics(path: Path) -> PhotoCandidate | None:
     ball = _ball_score(objects, (sx0, sy0, sx1, sy1), w, h)
     eyes = _eye_sharpness(gray, faces)
     bg = _background_sharpness(gray, (sx0, sy0, sx1, sy1))
+    # Subject box as a fraction of the frame. `presence`/face_score is NOT this:
+    # it is a confidence that a subject was found, so a tightly-cropped player
+    # and a distant one both score high. Clamped because _pick_subject can
+    # return a box slightly outside the frame.
+    area = max(0.0, min(1.0, ((sx1 - sx0) * (sy1 - sy0)) / float(max(w * h, 1))))
+    # Separation, as a ratio rather than two separate numbers, because what
+    # matters is the CONTRAST between subject and background, not either alone.
+    # A ratio also survives the per-shoot normalisation that absolute Laplacian
+    # values do not: it is already scale-free across lighting and lenses.
+    separation = subject_sharp / (bg + 1.0)
     return PhotoCandidate(
         path=path, sharpness=sharpness, frame_tiled=frame_tiled, detail_ratio=detail,
         contrast=contrast, brightness_mean=brightness, exposure_balance=exposure,
         subject_sharpness=subject_sharp, face_score=presence,
         ball_score=ball, eye_sharpness=eyes, bg_sharpness=bg,
+        subject_area=area, separation=separation,
         has_face=(src != "center"),  # subject was actually located, not guessed
         perceptual_hash=imagehash.phash(preview),
     )
@@ -631,7 +700,55 @@ def _normalize(values):
 
 
 _BADGE = {"sharpness": "Sharp subject", "faces": "Clear subject", "detail": "Rich detail",
-          "contrast": "Clean contrast", "exposure": "Well-exposed"}
+          "contrast": "Clean contrast", "exposure": "Well-exposed",
+          "separation": "Clean background", "framing": "Well framed",
+          "light": "Good light"}
+
+
+def _unit(contribution: float) -> float:
+    """A weighted contribution (z-units, signed) onto 0-1 for display.
+
+    Only used for the badge and the breakdown bars. Monotonic, so the LARGEST
+    contribution is still the largest after mapping, which is all the badge
+    selection depends on.
+    """
+    return max(0.0, min(1.0, 0.5 + contribution / 2.0))
+
+
+def _learned_scores(cands):
+    """Stage-two score per candidate, or (None, None) if the batch is too small.
+
+    Standardises each feature WITHIN the batch, the same way the weights were
+    fitted. That is deliberate rather than convenient: raw Laplacian variance
+    depends on light, lens and ISO, so an absolute threshold tuned on an
+    afternoon game means nothing at dusk. It also matches what the rest of the
+    engine already does with percentile normalisation, so a photo's rank stays a
+    statement about this shoot.
+
+    Returns (totals, parts). Totals are raw linear scores in z-units (roughly
+    -2..+2), not percentages; callers map them for display, and the ORDER is the
+    real output. Parts is the per-feature weighted contribution for each frame,
+    which is what the badge is chosen from: the feature that most helped THIS
+    photo, rather than a caption picked from a formula no longer in use.
+    """
+    if RANKER != "v2" or len(cands) < LEARNED_MIN_BATCH:
+        return None, None
+    cols = {}
+    for f in LEARNED_WEIGHTS:
+        vals = np.array([float(getattr(c, f, 0.0) or 0.0) for c in cands])
+        if f in LEARNED_LOG:
+            vals = np.log1p(np.maximum(vals, 0.0))
+        sd = float(vals.std())
+        # A feature that is constant across the batch contributes nothing rather
+        # than dividing by ~0. Happens for real: a detector can fire identically
+        # on every frame of a shoot.
+        cols[f] = (vals - vals.mean()) / sd if sd > 1e-9 else np.zeros(len(vals))
+    out = np.zeros(len(cands))
+    for f, w in LEARNED_WEIGHTS.items():
+        out += w * cols[f]
+    parts = [{f: float(LEARNED_WEIGHTS[f] * cols[f][i]) for f in LEARNED_WEIGHTS}
+             for i in range(len(cands))]
+    return [float(v) for v in out], parts
 
 
 def _effective_subject_sharpness(c: PhotoCandidate) -> float:
@@ -649,6 +766,7 @@ def add_scores(cands, weights, blur_threshold=40.0):
     con = _normalize([c.contrast for c in cands])
     exp = [c.exposure_balance for c in cands]
     fac = [min(1.0, max(0.0, c.face_score)) for c in cands]
+    learned, learned_parts = _learned_scores(cands)
     for i, c in enumerate(cands):
         # Focus-miss guard: how sharp is the SUBJECT vs the whole frame? A shot
         # where focus fell on the background (soft subject, crisp background) has
@@ -684,6 +802,24 @@ def add_scores(cands, weights, blur_threshold=40.0):
         if BOKEH_WEIGHT > 0.0 and c.has_face:
             sep = max(0.0, min(1.0, 1.0 - (c.bg_sharpness / max(BOKEH_SPAN, 1e-6))))
             base = base * (1.0 - BOKEH_WEIGHT) + base * BOKEH_WEIGHT * (0.5 + sep)
+        if learned is not None:
+            # STAGE TWO. Replaces the preset arithmetic, keeps the gate.
+            #
+            # A logistic maps z-units onto 0-100 because the weights were fitted
+            # by logistic regression, so this is the model's own probability
+            # scale: 50 is an average frame for this shoot, and a score reads as
+            # "how often would he pick this over a typical frame here". It is
+            # monotonic, so ordering is untouched by the mapping.
+            base = 100.0 / (1.0 + float(np.exp(-max(-50.0, min(50.0, learned[i])))))
+            # Breakdown drives the badge, so it has to describe what actually
+            # won. Reporting the legacy components here would caption a photo
+            # with a reason that no longer had anything to do with its rank.
+            c.score_breakdown = {
+                "separation": _unit(learned_parts[i]["separation"]),
+                "framing": _unit(learned_parts[i]["subject_area"]),
+                "faces": _unit(learned_parts[i]["face_score"]),
+                "light": _unit(learned_parts[i]["brightness_mean"]),
+            }
         c.score = base * gate
         if BALL_BONUS > 0.0 and c.ball_score > 0.0:
             # A bonus, never a penalty: most frames legitimately have no ball
@@ -747,6 +883,8 @@ def _metrics_to_dict(c: PhotoCandidate) -> dict:
         "ball_score": c.ball_score,
         "eye_sharpness": c.eye_sharpness,
         "bg_sharpness": c.bg_sharpness,
+        "subject_area": c.subject_area,
+        "separation": c.separation,
         "phash": str(c.perceptual_hash) if c.perceptual_hash is not None else None,
     }
 
@@ -770,6 +908,8 @@ def _dict_to_candidate(d: dict) -> PhotoCandidate:
         ball_score=float(d.get("ball_score", 0.0)),
         eye_sharpness=float(d.get("eye_sharpness", 0.0)),
         bg_sharpness=float(d.get("bg_sharpness", 0.0)),
+        subject_area=float(d.get("subject_area", 0.0)),
+        separation=float(d.get("separation", 0.0)),
         perceptual_hash=imagehash.hex_to_hash(ph) if ph else None,
     )
 

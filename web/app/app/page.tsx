@@ -123,6 +123,25 @@ export default function AppPage() {
   const allNames = Object.keys(filesMap);
   const set = (k: keyof CullSettings, v: string | number) => setSettings((s) => ({ ...s, [k]: v }));
 
+  // Score columns come from whatever the engine actually returned, not a fixed
+  // list. The two-stage ranker reports a DIFFERENT set of components than the
+  // legacy preset (separation/framing/light rather than detail/contrast), and
+  // the hardcoded columns here silently rendered "-" for four of five once the
+  // engine changed. Deriving them means the table follows the engine, and the
+  // CLUTCHCULL_RANKER rollback switch keeps working without a frontend deploy.
+  const scoreCols = useMemo(() => {
+    const seen = new Set<string>();
+    for (const k of results?.keepers ?? []) {
+      for (const key of Object.keys(k.breakdown ?? {})) seen.add(key);
+    }
+    // Stable, human-sensible order; anything unrecognised is appended rather
+    // than dropped, so a new engine component shows up instead of vanishing.
+    const pref = ["sharpness", "separation", "faces", "framing", "light",
+                  "detail", "contrast", "exposure"];
+    return [...pref.filter((p) => seen.has(p)),
+            ...[...seen].filter((s) => !pref.includes(s))];
+  }, [results]);
+
   // Only the photos actually on screen right now.
   const visibleNames = useMemo(() => {
     if (!results) return [] as string[];
@@ -711,10 +730,12 @@ export default function AppPage() {
                 <details className="rank-table">
                   <summary>See the scores behind these picks</summary>
                   <div className="rank-scroll"><table>
-                    <thead><tr><th>#</th><th>File</th><th>Why</th><th>Score</th><th>Subject</th><th>Faces</th><th>Detail</th><th>Contrast</th><th>Exposure</th></tr></thead>
+                    <thead><tr><th>#</th><th>File</th><th>Why</th><th>Score</th>
+                      {scoreCols.map((c) => <th key={c}>{BREAKDOWN_LABELS[c] ?? c}</th>)}
+                    </tr></thead>
                     <tbody>{results.keepers.map((k, i) => (
                       <tr key={k.filename}><td>{i + 1}</td><td>{k.filename}</td><td>{k.badge}</td><td><b>{Math.round(k.score)}</b></td>
-                        <td>{pct(k.breakdown.sharpness)}</td><td>{pct(k.breakdown.faces)}</td><td>{pct(k.breakdown.detail)}</td><td>{pct(k.breakdown.contrast)}</td><td>{pct(k.breakdown.exposure)}</td></tr>))}
+                        {scoreCols.map((c) => <td key={c}>{pct(k.breakdown[c])}</td>)}</tr>))}
                     </tbody>
                   </table></div>
                 </details>
@@ -828,3 +849,11 @@ export default function AppPage() {
 }
 
 const pct = (v: number | undefined) => (v == null ? "-" : `${Math.round(v * 100)}%`);
+
+// Column headings for engine score components. Plain words, because the table
+// is shown to photographers rather than to whoever wrote the engine.
+const BREAKDOWN_LABELS: Record<string, string> = {
+  sharpness: "Subject", separation: "Background", faces: "Subject clarity",
+  framing: "Framing", light: "Light", detail: "Detail",
+  contrast: "Contrast", exposure: "Exposure",
+};

@@ -83,15 +83,49 @@
   const KEY = "cc_pairs_v1";
   // ~5 comparisons per photo orders a shoot well without being a chore.
   const PER_PHOTO = 5;
+  // Fraction of pairs shown a SECOND time, far away and left/right swapped.
+  // Without these there is no way to know the photographer's own ceiling, and
+  // without the ceiling a model score of 67% cannot be read: it is either
+  // nearly as good as the person or half as good. Three judged shoots had zero
+  // repeated pairs, so that question was unanswerable.
+  const REPEAT_FRAC = 0.08;
   let files = [], urls = new Map(), pairs = [], at = 0, results = [];
 
   const $ = id => document.getElementById(id);
   const save = () => localStorage.setItem(KEY, JSON.stringify({ results, at }));
 
-  function buildPairs(n) {
+  // Deterministic PRNG, seeded from the file list.
+  //
+  // This fixes a real bug, not a style preference: buildPairs used Math.random,
+  // so reopening the page reshuffled the sequence while `at` was restored from
+  // storage. The resumed session then pointed into a DIFFERENT ordering, so
+  // some pairs were judged twice and others never at all, and the progress
+  // count was meaningless. Seeding from the folder makes rebuild reproducible,
+  // which is what resume always assumed.
+  function rng(seed) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 4294967296;
+    };
+  }
+
+  function seedFrom(names) {
+    let h = 2166136261;
+    for (const nm of names) {
+      for (let i = 0; i < nm.length; i++) {
+        h ^= nm.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+    }
+    return h >>> 0;
+  }
+
+  function buildPairs(n, seed) {
     // Round-robin style sampling: each photo meets PER_PHOTO distinct others,
     // with offsets spread across the list so no frame only ever meets its
     // neighbours. Shuffled so order of presentation carries no information.
+    const rand = rng(seed);
     const out = new Set();
     const offs = [];
     for (let k = 1; k <= Math.ceil(PER_PHOTO / 2); k++) {
@@ -106,8 +140,25 @@
     }
     const arr = [...out].map(s => s.split(",").map(Number));
     for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(rand() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+
+    // Re-ask some pairs. Two rules make the answer meaningful:
+    //   - the repeat goes in the BACK HALF, at least a third of the run later,
+    //     so it is a fresh judgement rather than a remembered one;
+    //   - the sides are SWAPPED, so a photographer who leans left under
+    //     fatigue shows up as inconsistent instead of hiding as agreement.
+    const nRep = Math.max(4, Math.round(arr.length * REPEAT_FRAC));
+    const gap = Math.floor(arr.length / 3);
+    const chosen = [];
+    for (let k = 0; k < nRep && k < arr.length; k++) {
+      chosen.push(arr[Math.floor(rand() * Math.min(gap, arr.length))]);
+    }
+    for (const [a, b] of chosen) {
+      const lo = Math.min(arr.length, gap * 2);
+      const pos = lo + Math.floor(rand() * Math.max(1, arr.length - lo));
+      arr.splice(pos, 0, [b, a]);          // swapped on purpose
     }
     return arr;
   }
@@ -145,7 +196,7 @@
       files = [...inp.files].filter(f => /\.(jpe?g|png|webp)$/i.test(f.name))
                             .sort((x, y) => x.name.localeCompare(y.name));
       if (files.length < 4) { alert("Need at least 4 photos."); return; }
-      pairs = buildPairs(files.length);
+      pairs = buildPairs(files.length, seedFrom(files.map(f => f.name)));
       const saved = JSON.parse(localStorage.getItem(KEY) || "null");
       if (saved && saved.results?.length) {
         const keep = confirm(`Resume ${saved.results.length} saved comparisons?`);
