@@ -86,9 +86,20 @@
   // Fraction of pairs shown a SECOND time, far away and left/right swapped.
   // Without these there is no way to know the photographer's own ceiling, and
   // without the ceiling a model score of 67% cannot be read: it is either
-  // nearly as good as the person or half as good. Three judged shoots had zero
-  // repeated pairs, so that question was unanswerable.
+  // nearly as good as the person or half as good.
   const REPEAT_FRAC = 0.08;
+  // How many pairs a session is actually expected to cover. This is NOT
+  // cosmetic. Repeats were first placed in the back half of the full generated
+  // sequence, which is ~830 pairs for a 140 frame shoot. Measured against the
+  // per-shoot accuracy curve, the right amount to judge is about 150, so a real
+  // session only ever reaches the first ~18% and never saw a single repeat. The
+  // first shoot judged under that version returned zero repeated pairs.
+  //
+  // So repeats are placed relative to the SESSION, not the sequence: drawn from
+  // the opening stretch and re-asked near the end of the expected 150. The
+  // spacing is smaller than before but still 60+ judgements of near-identical
+  // frames apart, which is a fresh opinion rather than a remembered one.
+  const SESSION = 150;
   let files = [], urls = new Map(), pairs = [], at = 0, results = [];
 
   const $ = id => document.getElementById(id);
@@ -145,21 +156,31 @@
     }
 
     // Re-ask some pairs. Two rules make the answer meaningful:
-    //   - the repeat goes in the BACK HALF, at least a third of the run later,
+    //   - the repeat lands late in the EXPECTED SESSION, far from the original,
     //     so it is a fresh judgement rather than a remembered one;
     //   - the sides are SWAPPED, so a photographer who leans left under
     //     fatigue shows up as inconsistent instead of hiding as agreement.
-    const nRep = Math.max(4, Math.round(arr.length * REPEAT_FRAC));
-    const gap = Math.floor(arr.length / 3);
-    const chosen = [];
-    for (let k = 0; k < nRep && k < arr.length; k++) {
-      chosen.push(arr[Math.floor(rand() * Math.min(gap, arr.length))]);
+    const session = Math.min(SESSION, arr.length);
+    const nRep = Math.max(4, Math.round(session * REPEAT_FRAC));
+    const from = Math.max(1, Math.floor(session * 0.25));  // draw from the opening
+    const at = Math.floor(session * 0.65);                 // re-ask from here on
+    // Pick WITHOUT replacement: the same pair asked three times would look
+    // like two data points about consistency when it is only one extra.
+    const pool = [];
+    for (let i = 0; i < from; i++) pool.push(i);
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    for (const [a, b] of chosen) {
-      const lo = Math.min(arr.length, gap * 2);
-      const pos = lo + Math.floor(rand() * Math.max(1, arr.length - lo));
-      arr.splice(pos, 0, [b, a]);          // swapped on purpose
-    }
+    const chosen = pool.slice(0, Math.min(nRep, pool.length)).map((i) => arr[i]);
+    // Insert back-to-front so each splice cannot shift the positions still to
+    // be used, which would bunch later repeats together.
+    const slots = chosen.map((_, k) =>
+      at + Math.floor((k + 0.5) * (session - at) / chosen.length)
+    ).reverse();
+    chosen.reverse().forEach(([a, b], k) => {
+      arr.splice(Math.min(slots[k], arr.length), 0, [b, a]);  // swapped
+    });
     return arr;
   }
 

@@ -133,6 +133,12 @@ def main() -> None:
     print("\n150, not 250: measured, the per-shoot curve flattens after ~80, and")
     print("the 9 minutes it takes to go from 80 to 290 buys 2.1 points where a")
     print("whole new shoot buys 4.0. More shoots, judged shallower, wins.")
+    print("\nSKIP ANY SHOOT THAT WENT BADLY. These are chosen by spreading across")
+    print("the calendar, which knows nothing about whether a shoot was usable. An")
+    print("indoor gymnastics meet where almost nothing worked before editing cost")
+    print("3.5 points when added: with every frame marginal, the judgements become")
+    print("'which would survive editing', which depends on things no feature here")
+    print("can measure. Judge shoots you were happy with.")
     print("\nThen register them in tools/cross_shoot.py SHOOTS and run:")
     print("  python tools/cross_shoot.py --search")
 

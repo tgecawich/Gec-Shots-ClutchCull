@@ -60,6 +60,31 @@ SHOOTS = [
      HOME / "Downloads/comparisons-soccer.csv"),
 ]
 
+# EXCLUDED, deliberately, and the reason is worth more than the data was.
+#
+#   ("mar08", "JUDGE-03-08", "comparisons-03-08.csv")   166 comparisons
+#
+# Indoor gymnastics, and per the photographer "very few of the photos came out
+# good before serious editing". Adding it dropped the best model from 64.9% to
+# 61.4% and hurt every other shoot it was trained alongside: baseball -2.9,
+# soccer -1.7, keepers -0.6.
+#
+# That is not thin data. Trimming soccer's test comparisons to the same 166
+# changed its score by 0.2 points, so sparseness is not the explanation.
+#
+# The explanation is that the labels answer a different question. When nearly
+# every frame is marginal, choosing between them is a judgement about which one
+# would SURVIVE EDITING, and that depends on recoverable highlights, croppable
+# framing and noise that cleans up. The engine scores the frame as it is. Those
+# labels therefore encode information no feature here can see, so fitting to
+# them moves the weights away from what works on frames that are already good.
+#
+# The lesson for picking future shoots: judge shoots that went WELL. A shoot
+# where the photographer would keep nothing teaches the ranker nothing about
+# ranking keepers. This file previously chose shoots by spreading them across
+# the calendar, which is good for variety in light and sport and blind to
+# whether the shoot was usable at all.
+
 # `sharpness` and `subject_sharpness` stay in despite being weak-to-negative
 # predictors: the point is to let the fit decide the sign rather than to assume
 # it. `separation` and `subject_area` are the two features added after the
